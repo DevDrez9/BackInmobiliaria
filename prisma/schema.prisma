@@ -1,0 +1,72 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "mysql"
+}
+
+enum Role {
+  ADMIN
+  INMOBILIARIA
+  GRATIS
+}
+
+model User {
+  id                  String     @id @default(uuid())
+  email               String?    @unique
+  phone               String     @unique
+  password            String
+  name                String?
+  role                Role       @default(GRATIS)
+  customMaxProperties Int?       
+  createdAt           DateTime   @default(now())
+  properties          Property[]
+}
+
+enum Currency {
+  BOB
+  USD
+}
+
+enum ListingType {
+  VENTA
+  ALQUILER
+  ANTICRETICO
+}
+
+enum PropertyType {
+  CASA
+  DEPARTAMENTO
+  TIENDA
+  LOCAL
+  OTRO
+}
+
+model Property {
+  id          String      @id @default(uuid())
+  title       String
+  description String      @db.Text
+  price       Float
+  currency    Currency
+  listingType ListingType
+  propertyType PropertyType @default(CASA)
+  city        String
+  latitude    Float
+  longitude   Float
+  whatsapp    String
+  images      Json        
+  facebookUrl String?     
+  userId      String
+  user        User        @relation(fields: [userId], references: [id])
+  createdAt   DateTime    @default(now())
+}
+
+model ActionLog {
+  id        String   @id @default(uuid())
+  userId    String?
+  method    String
+  route     String
+  payload   Json?
+  createdAt DateTime @default(now())
+}
