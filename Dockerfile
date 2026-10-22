@@ -33,5 +33,5 @@ COPY --from=builder /app/prisma.config.ts ./prisma.config.ts
 ENV NODE_ENV=production
 EXPOSE 3000
 
-# Comando: migraciones + app (usando el script start:prod del package.json)
-CMD ["sh", "-c", "npx prisma migrate deploy && npm run start:prod"]
+# Comando: sincronizar base de datos + app
+CMD ["sh", "-c", "npx prisma db push && npm run start:prod"]
