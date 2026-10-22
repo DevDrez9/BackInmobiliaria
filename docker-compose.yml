@@ -12,7 +12,7 @@ services:
       MYSQL_PASSWORD: ${MYSQL_PASSWORD:-pa$$Inmobiliaria9}
       MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-root_pa$$Inmobiliaria9}
     ports:
-      - "3306:3306"
+      - "3307:3306" # Mapeado al puerto 3307 externo para no chocar con el MySQL local del host
     volumes:
       - mysql_data:/var/lib/mysql
     healthcheck:
