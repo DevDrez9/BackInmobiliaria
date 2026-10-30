@@ -4,3 +4,6 @@ dist
 .git
 .vscode
 npm-debug.log
+uploads
+n8n
+

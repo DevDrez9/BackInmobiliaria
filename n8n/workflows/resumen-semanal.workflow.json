@@ -1,0 +1,80 @@
+{
+  "name": "Inmobiliaria - Resumen Semanal por Zonas (Lunes)",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "0 9 * * 1"
+            }
+          ]
+        }
+      },
+      "id": "c1f2c3d4-0001-4000-8000-000000000001",
+      "name": "Cada Lunes 09:00 AM",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [240, 300]
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "={{ $env.BACKEND_INTERNAL_URL }}/n8n/weekly-summary",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-Webhook-Secret",
+              "value": "={{ $env.N8N_WEBHOOK_SECRET }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "c1f2c3d4-0002-4000-8000-000000000002",
+      "name": "Consultar Nuevos Inmuebles",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [480, 300]
+    },
+    {
+      "parameters": {
+        "jsCode": "const summary = $input.first().json;\nif (!summary.totalNewProperties || summary.totalNewProperties === 0) {\n  return [];\n}\n\nconst topZones = (summary.zones || []).slice(0, 5);\nconst lines = topZones.map((z) => {\n  const verifiedCount = z.items.filter((i) => i.isVerified).length;\n  const featuredCount = z.items.filter((i) => i.isFeatured).length;\n  const badges = [];\n  if (featuredCount > 0) badges.push(`⭐ ${featuredCount} destacado(s)`);\n  if (verifiedCount > 0) badges.push(`✅ ${verifiedCount} verificado(s)`);\n  const extra = badges.length > 0 ? ` (${badges.join(', ')})` : '';\n  return `📍 ${z.zone}, ${z.city}: ${z.count} inmueble(s) nuevo(s)${extra}`;\n});\n\nconst message =\n  `🏘️ ¡Resumen semanal! Esta semana se sumaron ${summary.totalNewProperties} inmuebles nuevos al mapa:\\n\\n` +\n  lines.join('\\n') +\n  `\\n\\nExplora todos los pines disponibles en nuestra plataforma.`;\n\nconst pageId = $env.META_PAGE_ID;\nconst accessToken = $env.META_PAGE_ACCESS_TOKEN;\n\nif (pageId && accessToken) {\n  const res = await this.helpers.httpRequest({\n    method: 'POST',\n    url: `https://graph.facebook.com/v21.0/${pageId}/feed`,\n    body: {\n      message,\n      access_token: accessToken,\n    },\n    json: true,\n  });\n  return [{ json: { published: true, fb_post_id: res.id, message } }];\n}\n\nreturn [{ json: { published: false, reason: 'META credentials empty', message } }];\n"
+      },
+      "id": "c1f2c3d4-0003-4000-8000-000000000003",
+      "name": "Formatear y Publicar Resumen",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [740, 300]
+    }
+  ],
+  "connections": {
+    "Cada Lunes 09:00 AM": {
+      "main": [
+        [
+          {
+            "node": "Consultar Nuevos Inmuebles",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Consultar Nuevos Inmuebles": {
+      "main": [
+        [
+          {
+            "node": "Formatear y Publicar Resumen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  }
+}

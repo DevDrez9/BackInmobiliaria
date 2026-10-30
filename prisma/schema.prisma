@@ -7,21 +7,17 @@ datasource db {
 }
 
 enum Role {
+  USER
   ADMIN
+  REVISOR
   INMOBILIARIA
   GRATIS
 }
 
-model User {
-  id                  String     @id @default(uuid())
-  email               String?    @unique
-  phone               String     @unique
-  password            String
-  name                String?
-  role                Role       @default(GRATIS)
-  customMaxProperties Int?       
-  createdAt           DateTime   @default(now())
-  properties          Property[]
+enum AccountType {
+  PARTICULAR
+  AGENTE
+  INMOBILIARIA
 }
 
 enum Currency {
@@ -43,23 +39,314 @@ enum PropertyType {
   OTRO
 }
 
+enum PropertyStatus {
+  ACTIVO
+  PAUSADO
+  INACTIVO
+}
+
+enum SubscriptionStatus {
+  PENDIENTE_PAGO
+  ACTIVA
+  VENCIDA
+  CANCELADA
+}
+
+enum OrderType {
+  SUSCRIPCION
+  PRODUCTO
+}
+
+enum OrderStatus {
+  PENDIENTE_PAGO
+  PAGADA
+  EXPIRADA
+  CANCELADA
+  EN_REVISION
+}
+
+enum PaymentMethod {
+  QR_DINAMICO
+}
+
+enum PaymentStatus {
+  PENDIENTE
+  CONFIRMADO
+  RECHAZADO
+  CANCELADO
+}
+
+enum BoostStatus {
+  ACTIVO
+  VENCIDO
+}
+
+enum DiffusionStatus {
+  PENDIENTE
+  APROBADO
+  PUBLICADO
+  RECHAZADO
+  ERROR
+}
+
+enum VerificationStatus {
+  DOCUMENTOS_PENDIENTES
+  EN_REVISION
+  VERIFICADO
+  RECHAZADO
+  VENCIDO
+  SUSPENDIDO
+}
+
+enum PropertyEventType {
+  VISTA_PIN
+  VISTA_DETALLE
+  CLIC_CONTACTO
+  CLIC_WHATSAPP
+  CLIC_LLAMAR
+}
+
+model Plan {
+  id                   String         @id @default(uuid())
+  code                 String         @unique
+  name                 String
+  description          String?        @db.Text
+  monthlyPriceBs       Decimal        @db.Decimal(10, 2)
+  maxActiveProperties  Int?
+  maxImagesPerProperty Int            @default(3)
+  includesStats        Boolean        @default(false)
+  includesLogo         Boolean        @default(false)
+  isActive             Boolean        @default(true)
+  createdAt            DateTime       @default(now())
+  updatedAt            DateTime       @updatedAt
+  users                User[]
+  subscriptions        Subscription[]
+  orders               Order[]
+}
+
+model Product {
+  id                   String   @id @default(uuid())
+  code                 String   @unique
+  name                 String
+  description          String?  @db.Text
+  priceBs              Decimal  @db.Decimal(10, 2)
+  featuredDays         Int?
+  includesDiffusion    Boolean  @default(false)
+  includesVerification Boolean  @default(false)
+  isActive             Boolean  @default(true)
+  createdAt            DateTime @default(now())
+  updatedAt            DateTime @updatedAt
+  orders               Order[]
+}
+
+model User {
+  id                    String                 @id @default(uuid())
+  email                 String?                @unique
+  phone                 String                 @unique
+  password              String
+  name                  String?
+  role                  Role                   @default(USER)
+  accountType           AccountType            @default(PARTICULAR)
+  logoUrl               String?
+  currentPlanId         String?
+  currentPlan           Plan?                  @relation(fields: [currentPlanId], references: [id])
+  customMaxProperties   Int?
+  createdAt             DateTime               @default(now())
+  updatedAt             DateTime               @default(now()) @updatedAt
+  properties            Property[]
+  subscriptions         Subscription[]
+  orders                Order[]
+  notifications         Notification[]
+  approvedDiffusions    SocialDiffusion[]      @relation("DiffusionApprover")
+  reviewedVerifications PropertyVerification[] @relation("VerificationReviewer")
+}
+
 model Property {
-  id          String      @id @default(uuid())
-  title       String
-  description String      @db.Text
-  price       Float
-  currency    Currency
-  listingType ListingType
-  propertyType PropertyType @default(CASA)
-  city        String
-  latitude    Float
-  longitude   Float
-  whatsapp    String
-  images      Json        
-  facebookUrl String?     
-  userId      String
-  user        User        @relation(fields: [userId], references: [id])
-  createdAt   DateTime    @default(now())
+  id            String                 @id @default(uuid())
+  title         String
+  description   String                 @db.Text
+  price         Float
+  currency      Currency
+  listingType   ListingType
+  propertyType  PropertyType           @default(CASA)
+  status        PropertyStatus         @default(ACTIVO)
+  city          String
+  zone          String?
+  bedrooms      Int?
+  latitude      Float
+  longitude     Float
+  whatsapp      String
+  images        Json
+  facebookUrl   String?
+  featuredUntil DateTime?
+  isVerified    Boolean                @default(false)
+  userId        String
+  user          User                   @relation(fields: [userId], references: [id])
+  createdAt     DateTime               @default(now())
+  updatedAt     DateTime               @default(now()) @updatedAt
+  orders        Order[]
+  boosts        PropertyBoost[]
+  diffusions    SocialDiffusion[]
+  verifications PropertyVerification[]
+  events        PropertyEvent[]
+
+  @@index([status, featuredUntil, createdAt])
+  @@index([userId, status])
+  @@index([city, status])
+}
+
+model Subscription {
+  id           String             @id @default(uuid())
+  userId       String
+  user         User               @relation(fields: [userId], references: [id])
+  planId       String
+  plan         Plan               @relation(fields: [planId], references: [id])
+  orderId      String             @unique
+  order        Order              @relation(fields: [orderId], references: [id])
+  status       SubscriptionStatus @default(PENDIENTE_PAGO)
+  startDate    DateTime?
+  endDate      DateTime?
+  reminderSent Boolean            @default(false)
+  createdAt    DateTime           @default(now())
+  updatedAt    DateTime           @updatedAt
+
+  @@index([userId, status])
+  @@index([status, endDate])
+}
+
+model Order {
+  id             String                 @id @default(uuid())
+  idempotencyKey String                 @unique
+  userId         String
+  user           User                   @relation(fields: [userId], references: [id])
+  type           OrderType
+  planId         String?
+  plan           Plan?                  @relation(fields: [planId], references: [id])
+  productId      String?
+  product        Product?               @relation(fields: [productId], references: [id])
+  propertyId     String?
+  property       Property?              @relation(fields: [propertyId], references: [id], onDelete: SetNull)
+  amountBs       Decimal                @db.Decimal(10, 2)
+  status         OrderStatus            @default(PENDIENTE_PAGO)
+  expiresAt      DateTime
+  paidAt         DateTime?
+  createdAt      DateTime               @default(now())
+  updatedAt      DateTime               @updatedAt
+  subscription   Subscription?
+  payments       Payment[]
+  boosts         PropertyBoost[]
+  diffusions     SocialDiffusion[]
+  verifications  PropertyVerification[]
+
+  @@index([userId, createdAt])
+  @@index([status, expiresAt])
+}
+
+model Payment {
+  id                String        @id @default(uuid())
+  orderId           String
+  order             Order         @relation(fields: [orderId], references: [id])
+  method            PaymentMethod @default(QR_DINAMICO)
+  provider          String        @default("APIBANCO")
+  idempotencyKey    String        @unique
+  externalReference String?       @unique
+  gatewayTxId       Int?
+  qrImageBase64     String?       @db.LongText
+  amountBs          Decimal       @db.Decimal(10, 2)
+  amountCommission  Decimal?      @db.Decimal(10, 2)
+  amountNet         Decimal?      @db.Decimal(10, 2)
+  status            PaymentStatus @default(PENDIENTE)
+  rawPayload        Json?
+  confirmedAt       DateTime?
+  createdAt         DateTime      @default(now())
+  updatedAt         DateTime      @updatedAt
+
+  @@index([orderId])
+}
+
+model PropertyBoost {
+  id         String      @id @default(uuid())
+  propertyId String
+  property   Property    @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+  orderId    String
+  order      Order       @relation(fields: [orderId], references: [id])
+  startDate  DateTime
+  endDate    DateTime
+  status     BoostStatus @default(ACTIVO)
+  createdAt  DateTime    @default(now())
+
+  @@index([status, endDate])
+  @@index([propertyId, status])
+}
+
+model SocialDiffusion {
+  id              String          @id @default(uuid())
+  propertyId      String
+  property        Property        @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+  orderId         String
+  order           Order           @relation(fields: [orderId], references: [id])
+  status          DiffusionStatus @default(PENDIENTE)
+  postText        String          @db.Text
+  internalNotes   String?         @db.Text
+  rejectionReason String?         @db.Text
+  approvedById    String?
+  approvedBy      User?           @relation("DiffusionApprover", fields: [approvedById], references: [id])
+  reviewedAt      DateTime?
+  fbPostId        String?
+  igMediaId       String?
+  errorDetail     String?         @db.Text
+  publishedAt     DateTime?
+  createdAt       DateTime        @default(now())
+  updatedAt       DateTime        @updatedAt
+
+  @@index([status, createdAt])
+}
+
+model PropertyVerification {
+  id              String             @id @default(uuid())
+  propertyId      String
+  property        Property           @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+  orderId         String
+  order           Order              @relation(fields: [orderId], references: [id])
+  status          VerificationStatus @default(DOCUMENTOS_PENDIENTES)
+  documents       Json?
+  reviewerId      String?
+  reviewer        User?              @relation("VerificationReviewer", fields: [reviewerId], references: [id])
+  internalNotes   String?            @db.Text
+  rejectionReason String?            @db.Text
+  verifiedAt      DateTime?
+  validUntil      DateTime?
+  createdAt       DateTime           @default(now())
+  updatedAt       DateTime           @updatedAt
+
+  @@index([status, createdAt])
+  @@index([status, validUntil])
+}
+
+model PropertyEvent {
+  id         String            @id @default(uuid())
+  propertyId String
+  property   Property          @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+  type       PropertyEventType
+  source     String?
+  createdAt  DateTime          @default(now())
+
+  @@index([propertyId, createdAt])
+  @@index([propertyId, type])
+}
+
+model Notification {
+  id        String   @id @default(uuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  title     String
+  message   String   @db.Text
+  type      String
+  isRead    Boolean  @default(false)
+  metadata  Json?
+  createdAt DateTime @default(now())
+
+  @@index([userId, isRead, createdAt])
 }
 
 model ActionLog {

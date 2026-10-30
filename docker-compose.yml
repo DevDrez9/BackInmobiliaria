@@ -15,9 +15,45 @@ services:
       - "3307:3306"
     volumes:
       - mysql_data:/var/lib/mysql
+    networks:
+      - inmobiliarias-net
     healthcheck:
       test: ["CMD", "mysqladmin", "ping", "-h", "localhost"]
       interval: 5s
+      timeout: 5s
+      retries: 10
+
+  n8n:
+    container_name: inmobiliarias-n8n
+    image: docker.n8n.io/n8nio/n8n:latest
+    restart: always
+    ports:
+      - "${N8N_PORT:-5678}:5678"
+    environment:
+      - N8N_HOST=${N8N_HOST:-localhost}
+      - N8N_PORT=5678
+      - N8N_PROTOCOL=${N8N_PROTOCOL:-http}
+      - NODE_ENV=production
+      - WEBHOOK_URL=${N8N_PUBLIC_WEBHOOK_URL:-http://localhost:5678/}
+      - GENERIC_TIMEZONE=America/La_Paz
+      - TZ=America/La_Paz
+      - N8N_ENCRYPTION_KEY=${N8N_ENCRYPTION_KEY:-change-me-32-chars-encryption-key}
+      - N8N_SECURE_COOKIE=${N8N_SECURE_COOKIE:-false}
+      - N8N_BLOCK_ENV_ACCESS_IN_NODE=false
+      # Variables accesibles desde los workflows de n8n ($env.*)
+      - N8N_WEBHOOK_SECRET=${N8N_WEBHOOK_SECRET:-secreto_compartido_n8n}
+      - BACKEND_INTERNAL_URL=http://backend:3000
+      - META_PAGE_ID=${META_PAGE_ID:-}
+      - META_IG_USER_ID=${META_IG_USER_ID:-}
+      - META_PAGE_ACCESS_TOKEN=${META_PAGE_ACCESS_TOKEN:-}
+    volumes:
+      - n8n_data:/home/node/.n8n
+      - ./n8n/workflows:/workflows:ro
+    networks:
+      - inmobiliarias-net
+    healthcheck:
+      test: ["CMD-SHELL", "wget --spider -q http://localhost:5678/healthz || exit 1"]
+      interval: 10s
       timeout: 5s
       retries: 10
 
@@ -32,10 +68,22 @@ services:
     depends_on:
       db:
         condition: service_healthy
+      n8n:
+        condition: service_started
     env_file:
       - .env
+    environment:
+      - N8N_DIFFUSION_WEBHOOK_URL=${N8N_DIFFUSION_WEBHOOK_URL:-http://n8n:5678/webhook/difusion-inmueble}
+      - N8N_CALLBACK_BASE_URL=${N8N_CALLBACK_BASE_URL:-http://backend:3000}
     volumes:
       - ./uploads:/app/uploads
+    networks:
+      - inmobiliarias-net
+
+networks:
+  inmobiliarias-net:
+    driver: bridge
 
 volumes:
   mysql_data:
+  n8n_data:

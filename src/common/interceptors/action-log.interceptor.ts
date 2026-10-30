@@ -15,22 +15,30 @@ export class ActionLogInterceptor implements NestInterceptor {
     const req = context.switchToHttp().getRequest();
     const { method, originalUrl, body, user } = req;
 
+    // Evitar loguear eventos masivos de analítica para no inflar ActionLog
+    if (originalUrl?.startsWith('/events')) {
+      return next.handle();
+    }
+
     if (['POST', 'PATCH', 'PUT', 'DELETE'].includes(method)) {
       // Evitar bloquear la petición, guardamos el log de manera asíncrona
       setTimeout(async () => {
         try {
-          // Copiamos el body para poder censurar contraseñas si existen
+          // Copiamos el body para poder censurar contraseñas o truncar campos grandes si existen
           let safePayload: any = undefined;
-          if (body && Object.keys(body).length > 0) {
+          if (body && typeof body === 'object' && Object.keys(body).length > 0) {
             safePayload = { ...body };
             if (safePayload.password) {
               safePayload.password = '[HIDDEN]';
+            }
+            if (safePayload.qrImageBase64) {
+              safePayload.qrImageBase64 = '[BASE64_OMITTED]';
             }
           }
 
           await this.prisma.actionLog.create({
             data: {
-              userId: user?.id || null, // Puede ser null si es una ruta pública sin token (ej. login)
+              userId: user?.id || null,
               method,
               route: originalUrl,
               payload: safePayload,

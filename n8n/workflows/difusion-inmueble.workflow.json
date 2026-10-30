@@ -1,0 +1,124 @@
+{
+  "name": "Inmobiliaria - Difusion de Inmueble (FB + IG)",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "difusion-inmueble",
+        "responseMode": "onReceived",
+        "options": {}
+      },
+      "id": "b1f2c3d4-0001-4000-8000-000000000001",
+      "name": "Webhook Difusion",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [240, 300],
+      "webhookId": "difusion-inmueble-webhook"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "cond-secret-check",
+              "leftValue": "={{ $json.headers['x-webhook-secret'] }}",
+              "rightValue": "={{ $env.N8N_WEBHOOK_SECRET }}",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "b1f2c3d4-0002-4000-8000-000000000002",
+      "name": "Validar X-Webhook-Secret",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [480, 300]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Nodo de publicacion en Facebook Page + Instagram Business con soporte de reintento parcial\nconst body = $input.first().json.body || $input.first().json;\n\nconst pageId = $env.META_PAGE_ID;\nconst igUserId = $env.META_IG_USER_ID;\nconst accessToken = $env.META_PAGE_ACCESS_TOKEN;\n\nlet fbPostId = body.prev_fb_post_id || null;\nlet igMediaId = body.prev_ig_media_id || null;\nconst errors = [];\n\nconst fotos = Array.isArray(body.fotos) ? body.fotos.filter(Boolean) : [];\nconst mapImageUrl = body.mapa_zona_url || null;\nconst allMedia = mapImageUrl ? [...fotos.slice(0, 9), mapImageUrl] : fotos.slice(0, 10);\n\nconst fbCaption = `${body.texto_post}\\n\\n🗺️ Ver zona en el mapa: ${body.url_mapa}`;\nconst igCaption = `${body.texto_post}\\n\\n🔗 Encuentra el mapa interactivo en el enlace de nuestra biografía.`;\n\nif (!accessToken) {\n  errors.push('Falta configurar META_PAGE_ACCESS_TOKEN en las variables de entorno de n8n');\n} else if (fotos.length === 0) {\n  errors.push('El inmueble no tiene URLs de fotos públicas para publicar');\n} else {\n  // 1. Publicar en Facebook Page (solo si no fue publicado previamente en un intento anterior)\n  if (pageId && !fbPostId) {\n    try {\n      const attachedMedia = [];\n      for (const photoUrl of allMedia.slice(0, 6)) {\n        const mediaRes = await this.helpers.httpRequest({\n          method: 'POST',\n          url: `https://graph.facebook.com/v21.0/${pageId}/photos`,\n          body: {\n            url: photoUrl,\n            published: false,\n            access_token: accessToken,\n          },\n          json: true,\n        });\n        if (mediaRes && mediaRes.id) {\n          attachedMedia.push({ media_fbid: mediaRes.id });\n        }\n      }\n\n      const feedRes = await this.helpers.httpRequest({\n        method: 'POST',\n        url: `https://graph.facebook.com/v21.0/${pageId}/feed`,\n        body: {\n          message: fbCaption,\n          attached_media: attachedMedia,\n          access_token: accessToken,\n        },\n        json: true,\n      });\n\n      fbPostId = feedRes.id || null;\n    } catch (err) {\n      errors.push(`Facebook Error: ${err.message || String(err)}`);\n    }\n  }\n\n  // 2. Publicar en Instagram Business (1 foto directa o Carrusel hasta 10 elementos)\n  if (igUserId && !igMediaId) {\n    try {\n      let creationId = null;\n      if (allMedia.length === 1) {\n        const singleContainer = await this.helpers.httpRequest({\n          method: 'POST',\n          url: `https://graph.facebook.com/v21.0/${igUserId}/media`,\n          body: {\n            image_url: allMedia[0],\n            caption: igCaption,\n            access_token: accessToken,\n          },\n          json: true,\n        });\n        creationId = singleContainer.id;\n      } else {\n        const childrenIds = [];\n        for (const imgUrl of allMedia.slice(0, 10)) {\n          const itemContainer = await this.helpers.httpRequest({\n            method: 'POST',\n            url: `https://graph.facebook.com/v21.0/${igUserId}/media`,\n            body: {\n              image_url: imgUrl,\n              is_carousel_item: true,\n              access_token: accessToken,\n            },\n            json: true,\n          });\n          if (itemContainer && itemContainer.id) {\n            childrenIds.push(itemContainer.id);\n          }\n        }\n\n        const carouselContainer = await this.helpers.httpRequest({\n          method: 'POST',\n          url: `https://graph.facebook.com/v21.0/${igUserId}/media`,\n          body: {\n            media_type: 'CAROUSEL',\n            children: childrenIds.join(','),\n            caption: igCaption,\n            access_token: accessToken,\n          },\n          json: true,\n        });\n        creationId = carouselContainer.id;\n      }\n\n      if (creationId) {\n        const publishRes = await this.helpers.httpRequest({\n          method: 'POST',\n          url: `https://graph.facebook.com/v21.0/${igUserId}/media_publish`,\n          body: {\n            creation_id: creationId,\n            access_token: accessToken,\n          },\n          json: true,\n        });\n        igMediaId = publishRes.id || null;\n      }\n    } catch (err) {\n      errors.push(`Instagram Error: ${err.message || String(err)}`);\n    }\n  }\n}\n\nreturn [\n  {\n    json: {\n      callback_url: body.callback_url,\n      payload: {\n        difusion_id: body.difusion_id,\n        estado: errors.length > 0 ? 'error' : 'publicado',\n        fb_post_id: fbPostId,\n        ig_media_id: igMediaId,\n        error: errors.length > 0 ? errors.join(' | ') : null,\n      },\n    },\n  },\n];\n"
+      },
+      "id": "b1f2c3d4-0003-4000-8000-000000000003",
+      "name": "Publicar FB e IG (Graph API)",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [740, 260]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $json.callback_url }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-Webhook-Secret",
+              "value": "={{ $env.N8N_WEBHOOK_SECRET }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json.payload) }}",
+        "options": {}
+      },
+      "id": "b1f2c3d4-0004-4000-8000-000000000004",
+      "name": "Callback al Backend NestJS",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1000, 260]
+    }
+  ],
+  "connections": {
+    "Webhook Difusion": {
+      "main": [
+        [
+          {
+            "node": "Validar X-Webhook-Secret",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Validar X-Webhook-Secret": {
+      "main": [
+        [
+          {
+            "node": "Publicar FB e IG (Graph API)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Publicar FB e IG (Graph API)": {
+      "main": [
+        [
+          {
+            "node": "Callback al Backend NestJS",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  }
+}
