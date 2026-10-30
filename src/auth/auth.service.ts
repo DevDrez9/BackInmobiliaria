@@ -26,6 +26,8 @@ export class AuthService {
       monthlyPriceBs: Number(plan.monthlyPriceBs),
       maxActiveProperties: plan.maxActiveProperties,
       maxImagesPerProperty: plan.maxImagesPerProperty,
+      freeWeeklyDiffusions: plan.freeWeeklyDiffusions ?? 1,
+      extraDiffusionPriceBs: Number(plan.extraDiffusionPriceBs ?? 10),
       includesStats: plan.includesStats,
       includesLogo: plan.includesLogo,
     };

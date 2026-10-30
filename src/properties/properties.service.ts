@@ -81,25 +81,88 @@ export class PropertiesService {
       );
     }
 
-    return this.prisma.property.create({
-      data: {
-        title: dto.title,
-        description: dto.description,
-        price: dto.price,
-        currency: dto.currency as any,
-        listingType: dto.listingType as any,
-        propertyType: dto.propertyType as any,
-        status: 'ACTIVO',
-        city: dto.city,
-        zone: dto.zone,
-        bedrooms: dto.bedrooms,
-        latitude: dto.latitude,
-        longitude: dto.longitude,
-        whatsapp: dto.whatsapp || user.phone,
-        images: dto.images,
-        facebookUrl: dto.facebookUrl,
-        userId: user.id,
-      },
+    const quota = dto.requestDiffusion
+      ? await this.usersService.getDiffusionQuotaForUser(userId)
+      : null;
+
+    return this.prisma.$transaction(async (tx) => {
+      const createdProperty = await tx.property.create({
+        data: {
+          title: dto.title,
+          description: dto.description,
+          price: dto.price,
+          currency: dto.currency as any,
+          listingType: dto.listingType as any,
+          propertyType: dto.propertyType as any,
+          status: 'ACTIVO',
+          city: dto.city,
+          zone: dto.zone,
+          bedrooms: dto.bedrooms,
+          latitude: dto.latitude,
+          longitude: dto.longitude,
+          whatsapp: dto.whatsapp || user.phone,
+          images: dto.images,
+          facebookUrl: dto.facebookUrl,
+          userId: user.id,
+        },
+      });
+
+      if (!dto.requestDiffusion || !quota) {
+        return createdProperty;
+      }
+
+      if (quota.canPublishFree) {
+        const location = createdProperty.zone
+          ? `${createdProperty.zone}, ${createdProperty.city}`
+          : createdProperty.city;
+        const bedroomsLine = createdProperty.bedrooms
+          ? `🛏️ Dormitorios: ${createdProperty.bedrooms}\n`
+          : '';
+        const postText =
+          `🏠 ${createdProperty.listingType} — ${createdProperty.title}\n` +
+          `📍 Ubicación: ${location}\n` +
+          `💰 Precio: ${createdProperty.price.toLocaleString('es-BO')} ${createdProperty.currency}\n` +
+          bedroomsLine +
+          `\n${createdProperty.description.slice(0, 300)}`;
+
+        await tx.user.update({
+          where: { id: user.id },
+          data: { lastFreeDiffusionAt: new Date() },
+        });
+
+        const diffusion = await tx.socialDiffusion.create({
+          data: {
+            userId: user.id,
+            propertyId: createdProperty.id,
+            orderId: null,
+            isFreeQuota: true,
+            status: 'PENDIENTE',
+            postText,
+          },
+        });
+
+        return {
+          ...createdProperty,
+          diffusionRequest: {
+            queuedFree: true,
+            requiresPayment: false,
+            diffusionId: diffusion.id,
+            status: diffusion.status,
+          },
+        };
+      }
+
+      // Si ya agotó su publicación gratis de esta semana (Lunes a Domingo), avisa al front para cobrar con QR
+      return {
+        ...createdProperty,
+        diffusionRequest: {
+          queuedFree: false,
+          requiresPayment: true,
+          extraDiffusionPriceBs: quota.extraDiffusionPriceBs,
+          diffusionProductId: quota.diffusionProductId,
+          weekEnd: quota.weekEnd,
+        },
+      };
     });
   }
 

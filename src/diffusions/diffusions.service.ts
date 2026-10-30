@@ -6,6 +6,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
+import { UsersService } from '../users/users.service';
 import {
   ApproveDiffusionDto,
   FilterAdminDiffusionsDto,
@@ -24,7 +25,124 @@ export interface DiffusionQualityReport {
 export class DiffusionsService {
   private readonly logger = new Logger(DiffusionsService.name);
 
-  constructor(private prisma: PrismaService) {}
+  constructor(
+    private prisma: PrismaService,
+    private usersService: UsersService,
+  ) {}
+
+  buildInitialPostText(property: {
+    title: string;
+    listingType: string;
+    price: number;
+    currency: string;
+    city: string;
+    zone?: string | null;
+    bedrooms?: number | null;
+    description: string;
+  }): string {
+    const location = property.zone
+      ? `${property.zone}, ${property.city}`
+      : property.city;
+    const bedroomsLine = property.bedrooms
+      ? `🛏️ Dormitorios: ${property.bedrooms}\n`
+      : '';
+    return (
+      `🏠 ${property.listingType} — ${property.title}\n` +
+      `📍 Ubicación: ${location}\n` +
+      `💰 Precio: ${property.price.toLocaleString('es-BO')} ${property.currency}\n` +
+      bedroomsLine +
+      `\n${property.description.slice(0, 300)}`
+    );
+  }
+
+  async getQuotaForUser(userId: string) {
+    return this.usersService.getDiffusionQuotaForUser(userId);
+  }
+
+  async createFreeWeeklyDiffusion(userId: string, propertyId: string) {
+    const [property, user] = await Promise.all([
+      this.prisma.property.findUnique({ where: { id: propertyId } }),
+      this.prisma.user.findUnique({ where: { id: userId } }),
+    ]);
+
+    if (!property) {
+      throw new NotFoundException('El inmueble indicado no existe');
+    }
+
+    if (property.userId !== userId && user?.role !== 'ADMIN') {
+      throw new ForbiddenException(
+        'Solo puedes solicitar difusión para tus propios inmuebles',
+      );
+    }
+
+    if (property.status !== 'ACTIVO') {
+      throw new BadRequestException(
+        'Solo los inmuebles con estado ACTIVO pueden difundirse en redes sociales',
+      );
+    }
+
+    const activePending = await this.prisma.socialDiffusion.findFirst({
+      where: {
+        propertyId: property.id,
+        status: { in: ['PENDIENTE', 'APROBADO'] },
+      },
+    });
+    if (activePending) {
+      throw new BadRequestException(
+        'Este inmueble ya tiene una difusión pendiente de revisión o en proceso de publicación',
+      );
+    }
+
+    const quota = await this.usersService.getDiffusionQuotaForUser(userId);
+    if (!quota.canPublishFree) {
+      throw new BadRequestException({
+        message: `Ya utilizaste tu difusión gratuita de esta semana (lunes a domingo). Si deseas difundir más veces esta semana, el costo es de ${quota.extraDiffusionPriceBs} Bs.`,
+        code: 'FREE_DIFFUSION_QUOTA_EXCEEDED',
+        extraDiffusionPriceBs: quota.extraDiffusionPriceBs,
+        diffusionProductId: quota.diffusionProductId,
+        weekStart: quota.weekStart,
+        weekEnd: quota.weekEnd,
+      });
+    }
+
+    const postText = this.buildInitialPostText(property);
+    const now = new Date();
+
+    const created = await this.prisma.$transaction(async (tx) => {
+      await tx.user.update({
+        where: { id: userId },
+        data: { lastFreeDiffusionAt: now },
+      });
+
+      const diffusion = await tx.socialDiffusion.create({
+        data: {
+          userId,
+          propertyId: property.id,
+          orderId: null,
+          isFreeQuota: true,
+          status: 'PENDIENTE',
+          postText,
+        },
+      });
+
+      await tx.notification.create({
+        data: {
+          userId,
+          title: 'Difusión gratuita enviada a revisión',
+          message: `Usaste tu difusión gratis semanal para "${property.title}". Nuestro equipo la revisará antes de publicarla en redes.`,
+          type: 'FREE_DIFFUSION_QUEUED',
+          metadata: { diffusionId: diffusion.id, propertyId: property.id },
+        },
+      });
+
+      return diffusion;
+    });
+
+    return {
+      diffusion: created,
+      quotaAfter: await this.usersService.getDiffusionQuotaForUser(userId),
+    };
+  }
 
   /**
    * Redondea las coordenadas a ~3 decimales (~110m) para no exponer nunca
@@ -44,10 +162,12 @@ export class DiffusionsService {
     const prop = diffusion.property;
     const order = diffusion.order;
 
-    if (order && order.status !== 'PAGADA') {
-      blockers.push(
-        `La orden asociada no figura como PAGADA (estado actual: ${order.status}).`,
-      );
+    if (!diffusion.isFreeQuota) {
+      if (!order || order.status !== 'PAGADA') {
+        blockers.push(
+          `La orden asociada no figura como PAGADA (estado actual: ${order?.status || 'SIN_ORDEN'}).`,
+        );
+      }
     }
 
     if (!prop) {

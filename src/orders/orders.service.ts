@@ -7,6 +7,7 @@ import {
 import * as crypto from 'crypto';
 import { PrismaService } from '../prisma/prisma.service';
 import { GatewayService } from '../gateway/gateway.service';
+import { UsersService } from '../users/users.service';
 import { FulfillmentService } from './fulfillment.service';
 import {
   CreateProductOrderDto,
@@ -18,6 +19,7 @@ export class OrdersService {
   constructor(
     private prisma: PrismaService,
     private gatewayService: GatewayService,
+    private usersService: UsersService,
     private fulfillmentService: FulfillmentService,
   ) {}
 
@@ -222,6 +224,27 @@ export class OrdersService {
       }
     }
 
+    if (product.includesDiffusion) {
+      const pendingDiff = await this.prisma.socialDiffusion.findFirst({
+        where: {
+          propertyId: property.id,
+          status: { in: ['PENDIENTE', 'APROBADO'] },
+        },
+      });
+      if (pendingDiff) {
+        throw new BadRequestException(
+          'Este inmueble ya tiene una difusión pendiente de revisión o en proceso de publicación',
+        );
+      }
+    }
+
+    // Calcular monto: para DIFUSION_REDES aplica tarifa según nivel (10 Bs Gratis/Propietario, 35 Bs Agente/Inmobiliaria)
+    let amount = Number(product.priceBs);
+    if (product.code === 'DIFUSION_REDES') {
+      const quotaInfo = await this.usersService.getDiffusionQuotaForUser(userId);
+      amount = quotaInfo.extraDiffusionPriceBs;
+    }
+
     const minValidThreshold = new Date(Date.now() + 2 * 60 * 1000);
     const existingOrder = await this.prisma.order.findFirst({
       where: {
@@ -229,6 +252,7 @@ export class OrdersService {
         type: 'PRODUCTO',
         productId: product.id,
         propertyId: property.id,
+        amountBs: amount,
         status: 'PENDIENTE_PAGO',
         expiresAt: { gt: minValidThreshold },
       },
@@ -244,7 +268,6 @@ export class OrdersService {
       return this.formatOrderResponse(existingOrder);
     }
 
-    const amount = Number(product.priceBs);
     const idempotencyKey = this.generateIdempotencyKey('PRD');
     const expMinutes = this.expirationMinutes;
 

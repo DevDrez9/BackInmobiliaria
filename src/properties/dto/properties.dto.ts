@@ -6,6 +6,7 @@ import {
   IsOptional,
   IsUrl,
   IsInt,
+  IsBoolean,
   Min,
 } from 'class-validator';
 import { PartialType } from '@nestjs/swagger';
@@ -58,6 +59,10 @@ export class CreatePropertyDto {
   @IsOptional()
   @IsUrl()
   facebookUrl?: string;
+
+  @IsOptional()
+  @IsBoolean()
+  requestDiffusion?: boolean;
 }
 
 export class UpdatePropertyDto extends PartialType(CreatePropertyDto) {}

@@ -32,6 +32,16 @@ export class UpdatePlanDto {
   maxImagesPerProperty?: number;
 
   @IsOptional()
+  @IsInt()
+  @Min(0)
+  freeWeeklyDiffusions?: number;
+
+  @IsOptional()
+  @IsNumber()
+  @Min(0)
+  extraDiffusionPriceBs?: number;
+
+  @IsOptional()
   @IsBoolean()
   includesStats?: boolean;
 

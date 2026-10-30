@@ -16,6 +16,7 @@ import { Roles } from '../common/decorators/roles.decorator';
 import { DiffusionsService } from './diffusions.service';
 import {
   ApproveDiffusionDto,
+  CreateFreeDiffusionDto,
   FilterAdminDiffusionsDto,
   RejectDiffusionDto,
   UpdateDiffusionDto,
@@ -27,6 +28,21 @@ import {
 @Controller()
 export class DiffusionsController {
   constructor(private readonly diffusionsService: DiffusionsService) {}
+
+  // Consultar cupo gratis semanal (Lunes a Domingo) y tarifa de difusión extra según plan/cuenta
+  @Get('diffusions/quota')
+  getMyDiffusionQuota(@Request() req) {
+    return this.diffusionsService.getQuotaForUser(req.user.id);
+  }
+
+  // Solicitar difusión usando el cupo gratuito semanal (1 por semana de Lunes a Domingo)
+  @Post('diffusions/free')
+  createFreeDiffusion(@Request() req, @Body() dto: CreateFreeDiffusionDto) {
+    return this.diffusionsService.createFreeWeeklyDiffusion(
+      req.user.id,
+      dto.propertyId,
+    );
+  }
 
   // Endpoint del propietario para reenviar tras corregir observaciones
   @Post('diffusions/:id/resubmit')

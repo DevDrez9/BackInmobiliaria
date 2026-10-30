@@ -16,6 +16,92 @@ export class UsersService {
     private catalogService: CatalogService,
   ) {}
 
+  /**
+   * Calcula el inicio (Lunes 00:00:00.000) y fin (Domingo 23:59:59.999)
+   * de la semana actual en hora de Bolivia (America/La_Paz, UTC-4 fijo).
+   */
+  getCurrentBoliviaWeekBounds(now = new Date()) {
+    const BOLIVIA_OFFSET_MS = -4 * 60 * 60 * 1000;
+    const boliviaNow = new Date(now.getTime() + BOLIVIA_OFFSET_MS);
+    const daysSinceMonday = (boliviaNow.getUTCDay() + 6) % 7;
+
+    const mondayBoliviaMs = Date.UTC(
+      boliviaNow.getUTCFullYear(),
+      boliviaNow.getUTCMonth(),
+      boliviaNow.getUTCDate() - daysSinceMonday,
+      0,
+      0,
+      0,
+      0,
+    );
+
+    const weekStart = new Date(mondayBoliviaMs - BOLIVIA_OFFSET_MS);
+    const weekEnd = new Date(
+      weekStart.getTime() + 7 * 24 * 60 * 60 * 1000 - 1,
+    );
+
+    return { weekStart, weekEnd };
+  }
+
+  async getDiffusionQuotaForUser(userId: string) {
+    const { user, plan } = await this.getEffectivePlanForUser(userId);
+    const { weekStart, weekEnd } = this.getCurrentBoliviaWeekBounds();
+
+    const freeWeeklyLimit = plan.freeWeeklyDiffusions ?? 1;
+
+    const [dbFreeCount, agentePlan, diffusionProduct] = await Promise.all([
+      this.prisma.socialDiffusion.count({
+        where: {
+          isFreeQuota: true,
+          createdAt: { gte: weekStart, lte: weekEnd },
+          OR: [{ userId }, { property: { userId } }],
+        },
+      }),
+      user.accountType === 'INMOBILIARIA' && plan.code !== 'AGENTE'
+        ? this.prisma.plan.findUnique({ where: { code: 'AGENTE' } })
+        : Promise.resolve(null),
+      this.prisma.product.findUnique({
+        where: { code: 'DIFUSION_REDES' },
+        select: { id: true, code: true },
+      }),
+    ]);
+
+    const usedLastTimestampInThisWeek = Boolean(
+      user.lastFreeDiffusionAt &&
+        user.lastFreeDiffusionAt >= weekStart &&
+        user.lastFreeDiffusionAt <= weekEnd,
+    );
+
+    const freeUsedThisWeek = Math.max(
+      dbFreeCount,
+      usedLastTimestampInThisWeek ? 1 : 0,
+    );
+    const freeRemainingThisWeek = Math.max(
+      0,
+      freeWeeklyLimit - freeUsedThisWeek,
+    );
+
+    // Regla de precios para difusiones adicionales:
+    // Gratis / Propietario -> 10 Bs | Plan Agente o cuenta Inmobiliaria -> 35 Bs
+    let extraDiffusionPriceBs = Number(plan.extraDiffusionPriceBs ?? 10);
+    if (user.accountType === 'INMOBILIARIA' && plan.code !== 'AGENTE') {
+      extraDiffusionPriceBs = agentePlan
+        ? Number(agentePlan.extraDiffusionPriceBs)
+        : 35;
+    }
+
+    return {
+      weekStart,
+      weekEnd,
+      freeWeeklyLimit,
+      freeUsedThisWeek,
+      freeRemainingThisWeek,
+      canPublishFree: freeRemainingThisWeek > 0,
+      extraDiffusionPriceBs,
+      diffusionProductId: diffusionProduct?.id ?? null,
+    };
+  }
+
   async getEffectivePlanForUser(userId: string) {
     const user = await this.prisma.user.findUnique({
       where: { id: userId },
@@ -64,23 +150,28 @@ export class UsersService {
       includesLogo,
     } = await this.getEffectivePlanForUser(userId);
 
-    const [activePropertiesCount, pausedPropertiesCount, activeSubscription] =
-      await Promise.all([
-        this.prisma.property.count({
-          where: { userId, status: 'ACTIVO' },
-        }),
-        this.prisma.property.count({
-          where: { userId, status: 'PAUSADO' },
-        }),
-        this.prisma.subscription.findFirst({
-          where: {
-            userId,
-            status: 'ACTIVA',
-            endDate: { gt: new Date() },
-          },
-          orderBy: { endDate: 'desc' },
-        }),
-      ]);
+    const [
+      activePropertiesCount,
+      pausedPropertiesCount,
+      activeSubscription,
+      diffusionQuota,
+    ] = await Promise.all([
+      this.prisma.property.count({
+        where: { userId, status: 'ACTIVO' },
+      }),
+      this.prisma.property.count({
+        where: { userId, status: 'PAUSADO' },
+      }),
+      this.prisma.subscription.findFirst({
+        where: {
+          userId,
+          status: 'ACTIVA',
+          endDate: { gt: new Date() },
+        },
+        orderBy: { endDate: 'desc' },
+      }),
+      this.getDiffusionQuotaForUser(userId),
+    ]);
 
     return {
       plan: {
@@ -107,6 +198,7 @@ export class UsersService {
         activePropertiesCount,
         pausedPropertiesCount,
       },
+      diffusionQuota,
     };
   }
 

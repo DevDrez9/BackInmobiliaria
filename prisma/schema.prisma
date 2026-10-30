@@ -107,21 +107,23 @@ enum PropertyEventType {
 }
 
 model Plan {
-  id                   String         @id @default(uuid())
-  code                 String         @unique
-  name                 String
-  description          String?        @db.Text
-  monthlyPriceBs       Decimal        @db.Decimal(10, 2)
-  maxActiveProperties  Int?
-  maxImagesPerProperty Int            @default(3)
-  includesStats        Boolean        @default(false)
-  includesLogo         Boolean        @default(false)
-  isActive             Boolean        @default(true)
-  createdAt            DateTime       @default(now())
-  updatedAt            DateTime       @updatedAt
-  users                User[]
-  subscriptions        Subscription[]
-  orders               Order[]
+  id                    String         @id @default(uuid())
+  code                  String         @unique
+  name                  String
+  description           String?        @db.Text
+  monthlyPriceBs        Decimal        @db.Decimal(10, 2)
+  maxActiveProperties   Int?
+  maxImagesPerProperty  Int            @default(3)
+  freeWeeklyDiffusions  Int            @default(1)
+  extraDiffusionPriceBs Decimal        @default(10.00) @db.Decimal(10, 2)
+  includesStats         Boolean        @default(false)
+  includesLogo          Boolean        @default(false)
+  isActive              Boolean        @default(true)
+  createdAt             DateTime       @default(now())
+  updatedAt             DateTime       @updatedAt
+  users                 User[]
+  subscriptions         Subscription[]
+  orders                Order[]
 }
 
 model Product {
@@ -151,12 +153,14 @@ model User {
   currentPlanId         String?
   currentPlan           Plan?                  @relation(fields: [currentPlanId], references: [id])
   customMaxProperties   Int?
+  lastFreeDiffusionAt   DateTime?
   createdAt             DateTime               @default(now())
   updatedAt             DateTime               @default(now()) @updatedAt
   properties            Property[]
   subscriptions         Subscription[]
   orders                Order[]
   notifications         Notification[]
+  requestedDiffusions   SocialDiffusion[]      @relation("DiffusionRequester")
   approvedDiffusions    SocialDiffusion[]      @relation("DiffusionApprover")
   reviewedVerifications PropertyVerification[] @relation("VerificationReviewer")
 }
@@ -281,10 +285,13 @@ model PropertyBoost {
 
 model SocialDiffusion {
   id              String          @id @default(uuid())
+  userId          String?
+  user            User?           @relation("DiffusionRequester", fields: [userId], references: [id])
   propertyId      String
   property        Property        @relation(fields: [propertyId], references: [id], onDelete: Cascade)
-  orderId         String
-  order           Order           @relation(fields: [orderId], references: [id])
+  orderId         String?
+  order           Order?          @relation(fields: [orderId], references: [id])
+  isFreeQuota     Boolean         @default(false)
   status          DiffusionStatus @default(PENDIENTE)
   postText        String          @db.Text
   internalNotes   String?         @db.Text
@@ -300,6 +307,7 @@ model SocialDiffusion {
   updatedAt       DateTime        @updatedAt
 
   @@index([status, createdAt])
+  @@index([userId, isFreeQuota, createdAt])
 }
 
 model PropertyVerification {

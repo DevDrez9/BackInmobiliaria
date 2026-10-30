@@ -273,8 +273,10 @@ export class FulfillmentService {
           const draftPost = this.buildInitialPostText(order.property);
           await tx.socialDiffusion.create({
             data: {
+              userId: order.userId,
               propertyId: order.propertyId,
               orderId: order.id,
+              isFreeQuota: false,
               status: 'PENDIENTE',
               postText: draftPost,
             },

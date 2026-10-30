@@ -11,6 +11,7 @@ export class CatalogService {
     return {
       ...plan,
       monthlyPriceBs: Number(plan.monthlyPriceBs),
+      extraDiffusionPriceBs: Number(plan.extraDiffusionPriceBs ?? 10),
     };
   }
 
@@ -35,6 +36,8 @@ export class CatalogService {
           monthlyPriceBs: 0,
           maxActiveProperties: 1,
           maxImagesPerProperty: 3,
+          freeWeeklyDiffusions: 1,
+          extraDiffusionPriceBs: 10,
           includesStats: false,
           includesLogo: false,
           isActive: true,

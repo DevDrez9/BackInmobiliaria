@@ -214,9 +214,31 @@ Para cada inmueble del usuario mostrar:
 2. **Acción "Destacar en el Mapa"**:
    * Permite elegir 7 días (`DESTACADO_7`), 15 días (`DESTACADO_15`) o el paquete con redes (`PAQUETE_DESTACADO_REDES`).
    * Si `isFeatured === true`, mostrar *"Destacado hasta `<featuredUntil>`"* y botón *"Extender días"* (el backend suma automáticamente los días nuevos a partir de la fecha de fin actual).
-3. **Acción "Difundir en Facebook e Instagram"**:
-   * Muestra el estado de `property.latestDiffusion`:
-     * Sin difusión o `PUBLICADO` anterior → Botón *"Difundir en redes"* (abre Modal QR con `DIFUSION_REDES` o `PAQUETE_DESTACADO_REDES`).
+3. **Acción "Difundir en Facebook e Instagram" (1 Gratis por semana Lunes–Domingo + Adicionales por QR)**:
+   * **Regla de negocio:**
+     * Todo usuario cuenta con **1 difusión gratuita por semana** (contada de **Lunes 00:00 a Domingo 23:59** hora Bolivia).
+     * Si desea difundir más veces en la misma semana, se cobra por QR: **10 Bs** para planes `GRATIS` y `PROPIETARIO`, y **35 Bs** para `Plan Agente` o cuentas `INMOBILIARIA`.
+   * **Consultar cupo actual:** `GET /diffusions/quota` (también viene incluido en `GET /my-plan` dentro de `diffusionQuota`):
+     ```json
+     {
+       "weekStart": "2026-10-26T04:00:00.000Z",
+       "weekEnd": "2026-11-02T03:59:59.999Z",
+       "freeWeeklyLimit": 1,
+       "freeUsedThisWeek": 0,
+       "freeRemainingThisWeek": 1,
+       "canPublishFree": true,
+       "extraDiffusionPriceBs": 10,
+       "diffusionProductId": "uuid-de-DIFUSION_REDES"
+     }
+     ```
+   * **Opción A — Directo al publicar el inmueble (`POST /properties`)**:
+     * Enviar `requestDiffusion: true` en el body al crear el inmueble (checkbox *"Publicar también en Facebook e Instagram"*).
+     * Si `canPublishFree === true`, el backend encola automáticamente la difusión gratuita (`diffusionRequest.queuedFree = true`, `requiresPayment = false`).
+     * Si ya agotó su cupo semanal, crea el inmueble y devuelve `diffusionRequest: { queuedFree: false, requiresPayment: true, extraDiffusionPriceBs: 10 | 35, diffusionProductId }` para que el frontend abra el Modal QR por ese monto.
+   * **Opción B — Desde un inmueble ya publicado (`Mis Inmuebles`)**:
+     * Si `canPublishFree === true` → Mostrar botón **"Difundir Gratis (1 disponible esta semana)"** que llama a `POST /diffusions/free` con `{ "propertyId": "uuid" }` (entra directo a moderación `PENDIENTE` sin abrir QR).
+     * Si `canPublishFree === false` → Mostrar botón **"Difundir en redes (`<extraDiffusionPriceBs>` Bs)"** que llama a `POST /orders` con `{ "productId": diffusionProductId, "propertyId": "uuid" }` (el backend calcula automáticamente **10 Bs** o **35 Bs** según el plan/cuenta del usuario y devuelve el QR).
+   * **Estados en `property.latestDiffusion`**:
      * `PENDIENTE` / `APROBADO` → Badge *"En revisión por el equipo para publicación"*.
      * `PUBLICADO` → Badge *"Publicado en redes"*.
      * `RECHAZADO` → Mostrar alerta con `latestDiffusion.rejectionReason`, permitir editar fotos/descripción del inmueble y pulsar botón **"Reenviar a revisión sin costo"** (`POST /diffusions/:diffusionId/resubmit`).
@@ -303,6 +325,7 @@ Aquí se decide si un inmueble pagado se publica o no en Facebook e Instagram:
 | Generar orden QR para Suscripción | `POST` | `/subscriptions` | Bearer |
 | Generar orden QR para Producto de Inmueble | `POST` | `/orders` | Bearer |
 | Consultar orden / Forzar sync con banco | `GET` / `POST` | `/orders/:id`, `/orders/:id/sync` | Bearer |
+| Consultar cupo semanal de difusión / Usar difusión gratis | `GET` / `POST` | `/diffusions/quota`, `/diffusions/free` | Bearer |
 | Reenviar difusión corregida | `POST` | `/diffusions/:id/resubmit` | Bearer |
 | Subir documentos de verificación (`files`) | `POST` | `/verifications/:id/documents` | Bearer |
 | Descargar documento privado (`Blob`) | `GET` | `/verifications/:id/documents/:filename` | Bearer |

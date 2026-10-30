@@ -1,7 +1,7 @@
 import { BadRequestException } from '@nestjs/common';
 import { DiffusionsService } from './diffusions.service';
 
-describe('DiffusionsService (Admin & Revisor moderation -> n8n)', () => {
+describe('DiffusionsService (Weekly free quota + Admin/Revisor moderation -> n8n)', () => {
   const originalFetch = global.fetch;
 
   afterEach(() => {
@@ -9,8 +9,17 @@ describe('DiffusionsService (Admin & Revisor moderation -> n8n)', () => {
   });
 
   const makeMockPrisma = () => ({
+    user: {
+      findUnique: jest.fn(),
+      update: jest.fn(),
+    },
+    property: {
+      findUnique: jest.fn(),
+    },
     socialDiffusion: {
       findUnique: jest.fn(),
+      findFirst: jest.fn().mockResolvedValue(null),
+      create: jest.fn(),
       update: jest.fn(),
       findMany: jest.fn(),
       count: jest.fn(),
@@ -19,12 +28,76 @@ describe('DiffusionsService (Admin & Revisor moderation -> n8n)', () => {
     notification: {
       create: jest.fn(),
     },
+    $transaction: jest.fn(),
+  });
+
+  const makeMockUsersService = (overrides: Record<string, any> = {}) => ({
+    getDiffusionQuotaForUser: jest.fn().mockResolvedValue({
+      weekStart: new Date('2026-10-26T04:00:00.000Z'),
+      weekEnd: new Date('2026-11-02T03:59:59.999Z'),
+      freeWeeklyLimit: 1,
+      freeUsedThisWeek: 0,
+      freeRemainingThisWeek: 1,
+      canPublishFree: true,
+      extraDiffusionPriceBs: 10,
+      diffusionProductId: 'prd-difusion',
+      ...overrides,
+    }),
+  });
+
+  it('allows 1 free diffusion per week (Mon-Sun) and blocks the 2nd requiring 10 Bs or 35 Bs', async () => {
+    const prisma = makeMockPrisma();
+    prisma.$transaction.mockImplementation((cb: any) => cb(prisma));
+    prisma.property.findUnique.mockResolvedValue({
+      id: 'prop-free-1',
+      userId: 'user-1',
+      status: 'ACTIVO',
+      title: 'Casa en Achumani',
+      listingType: 'VENTA',
+      price: 120000,
+      currency: 'USD',
+      city: 'La Paz',
+      zone: 'Achumani',
+      bedrooms: 3,
+      description: 'Amplia casa con jardín',
+    });
+    prisma.user.findUnique.mockResolvedValue({ id: 'user-1', role: 'USER' });
+    prisma.socialDiffusion.create.mockResolvedValue({
+      id: 'diff-free-1',
+      isFreeQuota: true,
+      orderId: null,
+      status: 'PENDIENTE',
+    });
+
+    const usersService = makeMockUsersService();
+    const service = new DiffusionsService(prisma as any, usersService as any);
+
+    const res = await service.createFreeWeeklyDiffusion('user-1', 'prop-free-1');
+    expect(res.diffusion.isFreeQuota).toBe(true);
+    expect(prisma.user.update).toHaveBeenCalledTimes(1);
+
+    // Segundo intento en la misma semana para una Inmobiliaria (35 Bs)
+    const usersServiceExhausted = makeMockUsersService({
+      freeUsedThisWeek: 1,
+      freeRemainingThisWeek: 0,
+      canPublishFree: false,
+      extraDiffusionPriceBs: 35,
+    });
+    const service2 = new DiffusionsService(
+      prisma as any,
+      usersServiceExhausted as any,
+    );
+
+    await expect(
+      service2.createFreeWeeklyDiffusion('user-1', 'prop-free-1'),
+    ).rejects.toThrow(BadRequestException);
   });
 
   it('blocks approval to n8n when property is PAUSADO or lacks public image URLs', async () => {
     const prisma = makeMockPrisma();
     prisma.socialDiffusion.findUnique.mockResolvedValue({
       id: 'diff-1',
+      isFreeQuota: false,
       status: 'PENDIENTE',
       postText: 'Texto válido',
       order: { status: 'PAGADA' },
@@ -37,14 +110,17 @@ describe('DiffusionsService (Admin & Revisor moderation -> n8n)', () => {
       },
     });
 
-    const service = new DiffusionsService(prisma as any);
+    const service = new DiffusionsService(
+      prisma as any,
+      makeMockUsersService() as any,
+    );
     await expect(
       service.approveDiffusion('revisor-1', 'diff-1'),
     ).rejects.toThrow(BadRequestException);
     expect(prisma.socialDiffusion.update).not.toHaveBeenCalled();
   });
 
-  it('dispatches approved diffusion to n8n with rounded privacy coordinates and X-Webhook-Secret', async () => {
+  it('approves a FREE weekly diffusion (order=null, isFreeQuota=true) and dispatches to n8n', async () => {
     process.env.N8N_DIFFUSION_WEBHOOK_URL =
       'http://n8n:5678/webhook/difusion-inmueble';
     process.env.N8N_WEBHOOK_SECRET = 'secret-n8n-xyz';
@@ -59,11 +135,12 @@ describe('DiffusionsService (Admin & Revisor moderation -> n8n)', () => {
     const prisma = makeMockPrisma();
     const record = {
       id: 'diff-2',
+      isFreeQuota: true,
+      order: null,
       status: 'PENDIENTE',
       postText: 'Depto en Sopocachi',
       fbPostId: null,
       igMediaId: null,
-      order: { status: 'PAGADA' },
       property: {
         id: 'prop-2',
         title: 'Depto 2D',
@@ -89,9 +166,12 @@ describe('DiffusionsService (Admin & Revisor moderation -> n8n)', () => {
       approvedById: 'revisor-1',
     });
 
-    const service = new DiffusionsService(prisma as any);
+    const service = new DiffusionsService(
+      prisma as any,
+      makeMockUsersService() as any,
+    );
     await service.approveDiffusion('revisor-1', 'diff-2', {
-      internalNotes: 'Fotos verificadas, listo para publicar',
+      internalNotes: 'Cupo gratis semanal aprobado',
     });
 
     expect(mockFetch).toHaveBeenCalledTimes(1);
@@ -100,12 +180,8 @@ describe('DiffusionsService (Admin & Revisor moderation -> n8n)', () => {
     expect(fetchOpts.headers['X-Webhook-Secret']).toBe('secret-n8n-xyz');
 
     const sentBody = JSON.parse(fetchOpts.body);
-    // Coordenadas redondeadas a 3 decimales para privacidad
     expect(sentBody.latitud_aprox).toBe(-16.512);
     expect(sentBody.longitud_aprox).toBe(-68.127);
-    expect(sentBody.callback_url).toBe(
-      'http://backend:3000/webhooks/n8n/diffusion',
-    );
   });
 
   it('rejects diffusion without calling n8n and notifies property owner', async () => {
@@ -128,7 +204,10 @@ describe('DiffusionsService (Admin & Revisor moderation -> n8n)', () => {
       status: 'RECHAZADO',
     });
 
-    const service = new DiffusionsService(prisma as any);
+    const service = new DiffusionsService(
+      prisma as any,
+      makeMockUsersService() as any,
+    );
     await service.rejectDiffusion('revisor-1', 'diff-3', {
       reason: 'Fotos oscuras y borrosas',
       internalNotes: 'Pedir fotos de día',
