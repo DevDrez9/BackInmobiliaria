@@ -1,5 +1,7 @@
 import { BadRequestException } from '@nestjs/common';
 import { DiffusionsService } from './diffusions.service';
+import { SocialCardService } from './social-card.service';
+import sharp from 'sharp';
 
 describe('DiffusionsService (Weekly free quota + Admin/Revisor moderation -> n8n)', () => {
   const originalFetch = global.fetch;
@@ -182,6 +184,61 @@ describe('DiffusionsService (Weekly free quota + Admin/Revisor moderation -> n8n
     const sentBody = JSON.parse(fetchOpts.body);
     expect(sentBody.latitud_aprox).toBe(-16.512);
     expect(sentBody.longitud_aprox).toBe(-68.127);
+    expect(sentBody.imagen_generada_url).toContain(
+      '/public/diffusions/diff-2/social-card.png',
+    );
+    expect(sentBody.caption_redes).toContain(
+      'Más información en la app AlquilaBo',
+    );
+    expect(sentBody.caption_redes).toContain(sentBody.url_mapa);
+  });
+
+  it('generates a 1080x1080 PNG social card with AlquilaBO logo, up to 3 photos, bullet list without price, and footer', async () => {
+    const socialCardService = new SocialCardService();
+    const makeSamplePhoto = async (r: number, g: number, b: number) => {
+      const buf = await sharp({
+        create: {
+          width: 800,
+          height: 600,
+          channels: 3,
+          background: { r, g, b },
+        },
+      })
+        .png()
+        .toBuffer();
+      return `data:image/png;base64,${buf.toString('base64')}`;
+    };
+
+    const images = await Promise.all([
+      makeSamplePhoto(180, 140, 100),
+      makeSamplePhoto(120, 160, 190),
+      makeSamplePhoto(150, 120, 110),
+    ]);
+
+    const pngBuffer = await socialCardService.generateSocialCardBuffer(
+      {
+        id: 'prop-card-1',
+        title: 'Garzonier Amoblado',
+        listingType: 'ALQUILER',
+        propertyType: 'DEPARTAMENTO',
+        price: 3200,
+        currency: 'BOB',
+        city: 'La Paz',
+        zone: 'Calacoto Ballivian Calle 14',
+        bedrooms: 1,
+        whatsapp: '70503167',
+        description:
+          'Totalmente amoblado, Cocina equipada, Sala de estar luminosa, Excelente ubicación',
+        isVerified: true,
+        images,
+      },
+      'https://alquilabo.com/mapa?inmueble=prop-card-1',
+    );
+
+    const metadata = await sharp(pngBuffer).metadata();
+    expect(metadata.format).toBe('png');
+    expect(metadata.width).toBe(1080);
+    expect(metadata.height).toBe(1080);
   });
 
   it('rejects diffusion without calling n8n and notifies property owner', async () => {

@@ -113,17 +113,36 @@ export class PropertiesService {
 
       if (quota.canPublishFree) {
         const location = createdProperty.zone
-          ? `${createdProperty.zone}, ${createdProperty.city}`
+          ? `Zona ${createdProperty.zone}, ${createdProperty.city}`
           : createdProperty.city;
-        const bedroomsLine = createdProperty.bedrooms
-          ? `🛏️ Dormitorios: ${createdProperty.bedrooms}\n`
+        const propTypeLabel = createdProperty.propertyType
+          ? ` (${createdProperty.propertyType})`
           : '';
+        const bedroomsLine =
+          createdProperty.bedrooms !== null &&
+          createdProperty.bedrooms !== undefined
+            ? `🛏️ Dormitorios: ${createdProperty.bedrooms}\n`
+            : '';
+        const whatsappLine = createdProperty.whatsapp
+          ? `📱 Contacto / WhatsApp: ${createdProperty.whatsapp}\n`
+          : '';
+        const customAppLink = (
+          process.env.PUBLIC_APP_LINK || 'https://alquila.ratelapps.com/ir'
+        )
+          .trim()
+          .replace(/\/+$/, '');
+        const appUrl = /play\.google\.com|apps\.apple\.com/i.test(customAppLink)
+          ? customAppLink
+          : `${customAppLink}/${createdProperty.id}`;
+
         const postText =
-          `🏠 ${createdProperty.listingType} — ${createdProperty.title}\n` +
+          `🏠 En ${createdProperty.listingType}${propTypeLabel} — ${createdProperty.title}\n` +
           `📍 Ubicación: ${location}\n` +
-          `💰 Precio: ${createdProperty.price.toLocaleString('es-BO')} ${createdProperty.currency}\n` +
           bedroomsLine +
-          `\n${createdProperty.description.slice(0, 300)}`;
+          whatsappLine +
+          `\n${createdProperty.description.slice(0, 300)}\n\n` +
+          `✨ Más información en la app AlquilaBo\n` +
+          `🔗 ${appUrl}`;
 
         await tx.user.update({
           where: { id: user.id },

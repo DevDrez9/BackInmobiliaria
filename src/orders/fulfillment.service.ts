@@ -19,6 +19,7 @@ export class FulfillmentService {
   constructor(private prisma: PrismaService) {}
 
   private buildInitialPostText(property: {
+    id?: string;
     title: string;
     listingType: string;
     propertyType: string;
@@ -27,20 +28,40 @@ export class FulfillmentService {
     city: string;
     zone?: string | null;
     bedrooms?: number | null;
+    whatsapp?: string | null;
     description: string;
   }): string {
     const location = property.zone
-      ? `${property.zone}, ${property.city}`
+      ? `Zona ${property.zone}, ${property.city}`
       : property.city;
-    const bedroomsLine = property.bedrooms
-      ? `🛏️ Dormitorios: ${property.bedrooms}\n`
+    const propTypeLabel = property.propertyType
+      ? ` (${property.propertyType})`
       : '';
+    const bedroomsLine =
+      property.bedrooms !== null && property.bedrooms !== undefined
+        ? `🛏️ Dormitorios: ${property.bedrooms}\n`
+        : '';
+    const whatsappLine = property.whatsapp
+      ? `📱 Contacto / WhatsApp: ${property.whatsapp}\n`
+      : '';
+    const customAppLink = (
+      process.env.PUBLIC_APP_LINK || 'https://alquila.ratelapps.com/ir'
+    )
+      .trim()
+      .replace(/\/+$/, '');
+    const appUrl =
+      /play\.google\.com|apps\.apple\.com/i.test(customAppLink) || !property.id
+        ? customAppLink
+        : `${customAppLink}/${property.id}`;
+
     return (
-      `🏠 ${property.listingType} — ${property.title}\n` +
+      `🏠 En ${property.listingType}${propTypeLabel} — ${property.title}\n` +
       `📍 Ubicación: ${location}\n` +
-      `💰 Precio: ${property.price.toLocaleString('es-BO')} ${property.currency}\n` +
       bedroomsLine +
-      `\n${property.description.slice(0, 300)}`
+      whatsappLine +
+      `\n${property.description.slice(0, 300)}\n\n` +
+      `✨ Más información en la app AlquilaBo\n` +
+      `🔗 ${appUrl}`
     );
   }
 

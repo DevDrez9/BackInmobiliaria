@@ -7,8 +7,12 @@ import {
   Post,
   Query,
   Request,
+  Res,
   UseGuards,
 } from '@nestjs/common';
+import * as fs from 'fs/promises';
+import * as path from 'path';
+import type { Response } from 'express';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { RolesGuard } from '../common/guards/roles.guard';
@@ -21,6 +25,65 @@ import {
   RejectDiffusionDto,
   UpdateDiffusionDto,
 } from './dto/diffusions.dto';
+
+@ApiTags('public-social-cards (Meta Graph API, n8n & App Deep Link)')
+@Controller('public')
+export class PublicDiffusionsController {
+  constructor(private readonly diffusionsService: DiffusionsService) {}
+
+  @Get('app')
+  openAppRoot(@Res() res: Response) {
+    const html = this.diffusionsService.buildAppRedirectHtml();
+    res.set({ 'Content-Type': 'text/html; charset=utf-8' });
+    res.send(html);
+  }
+
+  @Get('app/inmueble/:id')
+  openPropertyInApp(@Param('id') id: string, @Res() res: Response) {
+    const html = this.diffusionsService.buildAppRedirectHtml(id);
+    res.set({ 'Content-Type': 'text/html; charset=utf-8' });
+    res.send(html);
+  }
+
+  @Get('logo-alquilabo.jpg')
+  async getLogo(@Res() res: Response) {
+    const logoPath = path.join(process.cwd(), 'assets', 'logo-alquilabo.jpg');
+    const buf = await fs.readFile(logoPath);
+    res.set({
+      'Content-Type': 'image/jpeg',
+      'Cache-Control': 'public, max-age=86400',
+    });
+    res.end(buf);
+  }
+
+  @Get('diffusions/:id/social-card.png')
+  async getDiffusionSocialCard(
+    @Param('id') id: string,
+    @Res() res: Response,
+  ) {
+    const buffer = await this.diffusionsService.getDiffusionSocialCardBuffer(id);
+    res.set({
+      'Content-Type': 'image/png',
+      'Content-Length': buffer.length,
+      'Cache-Control': 'public, max-age=300',
+    });
+    res.end(buffer);
+  }
+
+  @Get('properties/:id/social-card.png')
+  async getPropertySocialCard(
+    @Param('id') id: string,
+    @Res() res: Response,
+  ) {
+    const buffer = await this.diffusionsService.getPropertySocialCardBuffer(id);
+    res.set({
+      'Content-Type': 'image/png',
+      'Content-Length': buffer.length,
+      'Cache-Control': 'public, max-age=300',
+    });
+    res.end(buffer);
+  }
+}
 
 @ApiTags('diffusions (Admin & Revisor moderation -> n8n)')
 @ApiBearerAuth()

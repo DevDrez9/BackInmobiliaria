@@ -4,9 +4,11 @@ import {
   Injectable,
   Logger,
   NotFoundException,
+  Optional,
 } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { UsersService } from '../users/users.service';
+import { SocialCardService } from './social-card.service';
 import {
   ApproveDiffusionDto,
   FilterAdminDiffusionsDto,
@@ -28,31 +30,198 @@ export class DiffusionsService {
   constructor(
     private prisma: PrismaService,
     private usersService: UsersService,
+    @Optional()
+    private socialCardService: SocialCardService = new SocialCardService(),
   ) {}
 
+  buildPropertyAppUrl(propertyId?: string): string {
+    const customAppLink = (
+      process.env.PUBLIC_APP_LINK || 'https://alquila.ratelapps.com/ir'
+    )
+      .trim()
+      .replace(/\/+$/, '');
+
+    if (/play\.google\.com|apps\.apple\.com/i.test(customAppLink)) {
+      return customAppLink;
+    }
+    if (!propertyId) return customAppLink;
+    return `${customAppLink}/${propertyId}`;
+  }
+
+  buildAppRedirectHtml(propertyId?: string): string {
+    const scheme = (process.env.APP_DEEP_LINK_SCHEME || 'alquilabo').replace(
+      /:\/\/.*$/,
+      '',
+    );
+    const androidPackage =
+      process.env.ANDROID_PACKAGE_NAME || 'com.ratelapps.alquilabo';
+    const playStoreUrl =
+      process.env.PLAY_STORE_URL ||
+      `https://play.google.com/store/apps/details?id=${androidPackage}`;
+    const appStoreUrl = process.env.APP_STORE_URL || playStoreUrl;
+
+    const deepLinkPath = propertyId ? `inmueble/${propertyId}` : 'home';
+    const customSchemeUrl = `${scheme}://${deepLinkPath}`;
+    // Intent directo al paquete com.ratelapps.alquilabo: si está instalado abre la app; si no, abre Google Play Store automáticamente
+    const androidIntentUrl = `intent://${deepLinkPath}#Intent;scheme=${scheme};package=${androidPackage};S.browser_fallback_url=${encodeURIComponent(
+      playStoreUrl,
+    )};end`;
+    const androidLauncherIntentUrl = `intent://#Intent;action=android.intent.action.MAIN;category=android.intent.category.LAUNCHER;package=${androidPackage};S.browser_fallback_url=${encodeURIComponent(
+      playStoreUrl,
+    )};end`;
+
+    return `<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Abrir en la app AlquilaBO</title>
+  <style>
+    body {
+      margin: 0;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background: #0b1f3a;
+      color: #ffffff;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      min-height: 100vh;
+      text-align: center;
+      padding: 24px;
+    }
+    .card {
+      background: #ffffff;
+      color: #0f172a;
+      border-radius: 20px;
+      padding: 32px 24px;
+      max-width: 380px;
+      width: 100%;
+      box-shadow: 0 20px 40px rgba(0,0,0,0.35);
+    }
+    .logo {
+      width: 180px;
+      height: auto;
+      margin-bottom: 16px;
+    }
+    h1 {
+      font-size: 22px;
+      margin: 0 0 8px;
+      color: #0b1f3a;
+    }
+    p {
+      font-size: 15px;
+      color: #475569;
+      margin: 0 0 24px;
+    }
+    .btn {
+      display: block;
+      width: 100%;
+      box-sizing: border-box;
+      padding: 14px 20px;
+      border-radius: 12px;
+      font-size: 16px;
+      font-weight: 700;
+      text-decoration: none;
+      margin-bottom: 12px;
+    }
+    .btn-primary {
+      background: #16a34a;
+      color: #ffffff;
+    }
+    .btn-secondary {
+      background: #0b1f3a;
+      color: #ffffff;
+    }
+  </style>
+  <script>
+    (function() {
+      var ua = navigator.userAgent || '';
+      var isAndroid = /android/i.test(ua);
+      var isIOS = /iPad|iPhone|iPod/.test(ua);
+      var customScheme = ${JSON.stringify(customSchemeUrl)};
+      var intentUrl = ${JSON.stringify(androidIntentUrl)};
+      var launcherIntentUrl = ${JSON.stringify(androidLauncherIntentUrl)};
+      var playStore = ${JSON.stringify(playStoreUrl)};
+      var appStore = ${JSON.stringify(appStoreUrl)};
+
+      // Intentar abrir directamente la app móvil AlquilaBO (si está instalada la abre; si no, Play Store)
+      window.location.href = isAndroid ? launcherIntentUrl : customScheme;
+
+      setTimeout(function() {
+        if (!document.hidden) {
+          window.location.href = isIOS ? appStore : playStore;
+        }
+      }, 1800);
+    })();
+  </script>
+</head>
+<body>
+  <div class="card">
+    <img class="logo" src="/public/logo-alquilabo.jpg" alt="AlquilaBO" />
+    <h1>Abriendo la app AlquilaBO...</h1>
+    <p>Estamos abriendo este inmueble directamente en la aplicación móvil.</p>
+    <a class="btn btn-primary" href="${androidLauncherIntentUrl}">Abrir en la app AlquilaBO</a>
+    <a class="btn btn-secondary" href="${playStoreUrl}">Descargar en Google Play</a>
+  </div>
+</body>
+</html>`;
+  }
+
   buildInitialPostText(property: {
+    id?: string;
     title: string;
     listingType: string;
+    propertyType?: string | null;
     price: number;
     currency: string;
     city: string;
     zone?: string | null;
     bedrooms?: number | null;
+    whatsapp?: string | null;
     description: string;
   }): string {
     const location = property.zone
-      ? `${property.zone}, ${property.city}`
+      ? `Zona ${property.zone}, ${property.city}`
       : property.city;
-    const bedroomsLine = property.bedrooms
-      ? `🛏️ Dormitorios: ${property.bedrooms}\n`
+    const propTypeLabel = property.propertyType
+      ? ` (${property.propertyType})`
       : '';
+    const bedroomsLine =
+      property.bedrooms !== null && property.bedrooms !== undefined
+        ? `🛏️ Dormitorios: ${property.bedrooms}\n`
+        : '';
+    const whatsappLine = property.whatsapp
+      ? `📱 Contacto / WhatsApp: ${property.whatsapp}\n`
+      : '';
+    const appUrl = this.buildPropertyAppUrl(property.id);
+
     return (
-      `🏠 ${property.listingType} — ${property.title}\n` +
+      `🏠 En ${property.listingType}${propTypeLabel} — ${property.title}\n` +
       `📍 Ubicación: ${location}\n` +
-      `💰 Precio: ${property.price.toLocaleString('es-BO')} ${property.currency}\n` +
       bedroomsLine +
-      `\n${property.description.slice(0, 300)}`
+      whatsappLine +
+      `\n${(property.description || '').slice(0, 300)}\n\n` +
+      `✨ Más información en la app AlquilaBo\n` +
+      `🔗 ${appUrl}`
     );
+  }
+
+  buildFinalSocialCaption(postText: string, urlMapa: string): string {
+    const trimmed = (postText || '').trim();
+    const hasAlquilaBoFooter = /m[aá]s informaci[oó]n en (la app )?alquilabo/i.test(
+      trimmed,
+    );
+    const hasLink = trimmed.includes(urlMapa);
+
+    if (hasAlquilaBoFooter && hasLink) {
+      return trimmed;
+    }
+
+    if (hasAlquilaBoFooter && !hasLink) {
+      return `${trimmed}\n🔗 ${urlMapa}`;
+    }
+
+    return `${trimmed}\n\n✨ Más información en la app AlquilaBo\n🔗 ${urlMapa}`;
   }
 
   async getQuotaForUser(userId: string) {
@@ -224,13 +393,13 @@ export class DiffusionsService {
 
   private buildN8nPayload(diffusion: any) {
     const prop = diffusion.property;
-    const mapBaseUrl = (
-      process.env.PUBLIC_APP_MAP_URL || 'https://tuapp.com/mapa'
-    ).replace(/\/+$/, '');
     const callbackBaseUrl = (
       process.env.N8N_CALLBACK_BASE_URL ||
       process.env.PUBLIC_API_BASE_URL ||
       'http://backend:3000'
+    ).replace(/\/+$/, '');
+    const publicApiBaseUrl = (
+      process.env.PUBLIC_API_BASE_URL || callbackBaseUrl
     ).replace(/\/+$/, '');
 
     const { latApprox, lngApprox, staticMapUrl } = this.getApproximateCoords(
@@ -245,7 +414,13 @@ export class DiffusionsService {
         )
       : [];
 
-    const urlMapa = `${mapBaseUrl}?inmueble=${prop.id}&utm_source=facebook&utm_medium=social&utm_campaign=difusion`;
+    const urlMapa = this.buildPropertyAppUrl(prop.id);
+    const captionRedes = this.buildFinalSocialCaption(
+      diffusion.postText,
+      urlMapa,
+    );
+    const imagenGeneradaUrl = `${publicApiBaseUrl}/public/diffusions/${diffusion.id}/social-card.png`;
+    const imagenGeneradaInternalUrl = `${callbackBaseUrl}/public/diffusions/${diffusion.id}/social-card.png`;
 
     return {
       difusion_id: diffusion.id,
@@ -258,10 +433,15 @@ export class DiffusionsService {
       zona: prop.zone || prop.city,
       ciudad: prop.city,
       dormitorios: prop.bedrooms ?? null,
+      whatsapp: prop.whatsapp ?? null,
       latitud_aprox: latApprox,
       longitud_aprox: lngApprox,
       mapa_zona_url: staticMapUrl,
+      foto_principal_url: fotos[0] || null,
+      imagen_generada_url: imagenGeneradaUrl,
+      imagen_generada_internal_url: imagenGeneradaInternalUrl,
       texto_post: diffusion.postText,
+      caption_redes: captionRedes,
       fotos,
       url_mapa: urlMapa,
       verificado: prop.isVerified,
@@ -269,6 +449,39 @@ export class DiffusionsService {
       prev_ig_media_id: diffusion.igMediaId ?? null,
       callback_url: `${callbackBaseUrl}/webhooks/n8n/diffusion`,
     };
+  }
+
+  async getDiffusionSocialCardBuffer(diffusionId: string): Promise<Buffer> {
+    const diffusion = await this.prisma.socialDiffusion.findUnique({
+      where: { id: diffusionId },
+      include: { property: true },
+    });
+    if (!diffusion || !diffusion.property) {
+      throw new NotFoundException('Difusión o inmueble no encontrado');
+    }
+
+    const appUrl = this.buildPropertyAppUrl(diffusion.property.id);
+    const { buffer } = await this.socialCardService.generateAndSaveSocialCard(
+      diffusion.property,
+      appUrl,
+    );
+    return buffer;
+  }
+
+  async getPropertySocialCardBuffer(propertyId: string): Promise<Buffer> {
+    const property = await this.prisma.property.findUnique({
+      where: { id: propertyId },
+    });
+    if (!property) {
+      throw new NotFoundException('Inmueble no encontrado');
+    }
+
+    const appUrl = this.buildPropertyAppUrl(property.id);
+    const { buffer } = await this.socialCardService.generateAndSaveSocialCard(
+      property,
+      appUrl,
+    );
+    return buffer;
   }
 
   async getQueueStats() {
@@ -417,12 +630,10 @@ export class DiffusionsService {
       currentStatus: diffusion.status,
       qualityChecks,
       socialPreview: {
-        facebookCaption: `${n8nPayload.texto_post}\n\n🗺️ Ver zona en el mapa: ${n8nPayload.url_mapa}`,
-        instagramCaption: `${n8nPayload.texto_post}\n\n🔗 Encuentra el mapa interactivo en el enlace de nuestra biografía.`,
-        carouselMedia: [
-          ...n8nPayload.fotos.slice(0, 9),
-          n8nPayload.mapa_zona_url,
-        ],
+        generatedImageUrl: n8nPayload.imagen_generada_url,
+        facebookCaption: n8nPayload.caption_redes,
+        instagramCaption: n8nPayload.caption_redes,
+        carouselMedia: [n8nPayload.imagen_generada_url],
       },
       n8nPayload,
     };
