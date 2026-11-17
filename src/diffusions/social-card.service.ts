@@ -19,6 +19,14 @@ export interface SocialCardPropertyInput {
   images?: unknown;
 }
 
+export interface CityCoverCardInput {
+  city: string;
+  date?: string | Date;
+  totalProperties?: number;
+  samplePhotos?: unknown[];
+  appLink?: string;
+}
+
 @Injectable()
 export class SocialCardService {
   private readonly logger = new Logger(SocialCardService.name);
@@ -341,9 +349,260 @@ export class SocialCardService {
     </svg>`;
   }
 
+  formatPublicationDate(dateInput?: string | Date): {
+    isoDate: string;
+    slashDate: string;
+    longSpanishDate: string;
+    dayNum: string;
+    monthName: string;
+    yearNum: string;
+  } {
+    const months = [
+      'ENERO',
+      'FEBRERO',
+      'MARZO',
+      'ABRIL',
+      'MAYO',
+      'JUNIO',
+      'JULIO',
+      'AGOSTO',
+      'SEPTIEMBRE',
+      'OCTUBRE',
+      'NOVIEMBRE',
+      'DICIEMBRE',
+    ];
+
+    let year = 2026;
+    let monthIdx = 0;
+    let day = 1;
+
+    if (
+      typeof dateInput === 'string' &&
+      /^\d{4}-\d{2}-\d{2}$/.test(dateInput.trim())
+    ) {
+      const [y, m, d] = dateInput
+        .trim()
+        .split('-')
+        .map((n) => parseInt(n, 10));
+      year = y;
+      monthIdx = Math.max(0, Math.min(11, m - 1));
+      day = d;
+    } else {
+      const refDate = dateInput ? new Date(dateInput) : new Date();
+      const validDate = Number.isNaN(refDate.getTime()) ? new Date() : refDate;
+      // Ajustar a zona horaria de Bolivia (UTC-4)
+      const boliviaTime = new Date(validDate.getTime() - 4 * 60 * 60 * 1000);
+      year = boliviaTime.getUTCFullYear();
+      monthIdx = boliviaTime.getUTCMonth();
+      day = boliviaTime.getUTCDate();
+    }
+
+    const dayNum = String(day).padStart(2, '0');
+    const monthNum = String(monthIdx + 1).padStart(2, '0');
+    const yearNum = String(year);
+    const monthName = months[monthIdx] || 'ENERO';
+
+    return {
+      isoDate: `${yearNum}-${monthNum}-${dayNum}`,
+      slashDate: `${dayNum}/${monthNum}/${yearNum}`,
+      longSpanishDate: `${dayNum} DE ${monthName} DE ${yearNum}`,
+      dayNum,
+      monthName,
+      yearNum,
+    };
+  }
+
+  buildCityCoverLeftPanelSvg(input: CityCoverCardInput): string {
+    const cityUpper = (input.city || 'BOLIVIA').toUpperCase().trim();
+    const cityLines = this.wrapText(cityUpper, 13, 2);
+    const cityLine1 = this.escapeXml(cityLines[0] || 'BOLIVIA');
+    const cityLine2 = cityLines[1] ? this.escapeXml(cityLines[1]) : null;
+
+    const dateParts = this.formatPublicationDate(input.date);
+    const totalCount =
+      typeof input.totalProperties === 'number' && input.totalProperties > 0
+        ? input.totalProperties
+        : null;
+
+    const bullets = [
+      `Fecha: ${dateParts.slashDate}`,
+      totalCount
+        ? `${totalCount} inmueble(s) verificados hoy`
+        : 'Catálogo actualizado hoy',
+      'Alquiler, Venta y Anticrético',
+      'Contacto directo con propietarios',
+      'Desliza para ver cada ficha ->',
+    ];
+
+    const bulletStartY = 670;
+    const bulletSvgs = bullets
+      .map((item, idx) => {
+        const y = bulletStartY + idx * 42;
+        return `
+        <circle cx="34" cy="${y - 7}" r="5" fill="#16A34A" />
+        <text x="50" y="${y}" font-family="DejaVu Sans, Arial, Helvetica, sans-serif" font-size="20" font-weight="bold" fill="#1E293B">${this.escapeXml(item)}</text>`;
+      })
+      .join('');
+
+    return `<svg width="375" height="1080" viewBox="0 0 375 1080" xmlns="http://www.w3.org/2000/svg">
+      <!-- Fondo blanco columna izquierda -->
+      <rect x="0" y="0" width="375" height="1080" fill="#FFFFFF" />
+
+      <!-- Línea separadora bajo el espacio del logo -->
+      <line x1="24" y1="206" x2="351" y2="206" stroke="#E2E8F0" stroke-width="2" />
+
+      <!-- Encabezado de Portada Diaria -->
+      <text x="26" y="258" font-family="DejaVu Serif, Georgia, Times New Roman, serif" font-size="40" font-weight="bold" fill="#111827">Inmuebles</text>
+      <text x="26" y="308" font-family="DejaVu Serif, Georgia, Times New Roman, serif" font-size="42" font-weight="bold" fill="#16A34A">del Día</text>
+      <line x1="0" y1="330" x2="285" y2="330" stroke="#1E3A8A" stroke-width="4" />
+
+      <!-- Pin de Ubicación Rojo + Ciudad -->
+      <g transform="translate(24, 360)">
+        <path d="M22 0C9.85 0 0 9.85 0 22C0 38.5 22 58 22 58C22 58 44 38.5 44 22C44 9.85 34.15 0 22 0Z" fill="#EF4444" stroke="#111827" stroke-width="2.5" />
+        <circle cx="22" cy="21" r="8" fill="#7F1D1D" />
+      </g>
+
+      <text x="80" y="392" font-family="DejaVu Sans, Arial, Helvetica, sans-serif" font-size="31" font-weight="bold" fill="#111827" letter-spacing="0.5">${cityLine1}</text>
+      ${
+        cityLine2
+          ? `<text x="80" y="428" font-family="DejaVu Sans, Arial, Helvetica, sans-serif" font-size="29" font-weight="bold" fill="#111827" letter-spacing="0.5">${cityLine2}</text>`
+          : `<text x="80" y="424" font-family="DejaVu Sans, Arial, Helvetica, sans-serif" font-size="20" font-weight="bold" fill="#475569">BOLIVIA</text>`
+      }
+
+      <!-- Tarjeta destacada con la FECHA ACTUAL DE PUBLICACIÓN -->
+      <g transform="translate(20, 462)">
+        <rect x="0" y="0" width="335" height="140" rx="16" fill="#0B1F3A" />
+        <rect x="0" y="0" width="335" height="8" rx="4" fill="#22C55E" />
+        <text x="167" y="40" font-family="DejaVu Sans, Arial, Helvetica, sans-serif" font-size="16" font-weight="bold" fill="#94A3B8" text-anchor="middle" letter-spacing="1.5">FECHA DE PUBLICACIÓN</text>
+        <text x="167" y="84" font-family="DejaVu Sans, Arial, Helvetica, sans-serif" font-size="34" font-weight="bold" fill="#FFFFFF" text-anchor="middle">${this.escapeXml(dateParts.slashDate)}</text>
+        <text x="167" y="118" font-family="DejaVu Sans, Arial, Helvetica, sans-serif" font-size="17" font-weight="bold" fill="#22C55E" text-anchor="middle">${this.escapeXml(dateParts.longSpanishDate)}</text>
+      </g>
+
+      <!-- Lista informativa -->
+      <line x1="24" y1="630" x2="351" y2="630" stroke="#CBD5E1" stroke-width="1.5" />
+      ${bulletSvgs}
+
+      <!-- Parte inferior: Más información en la app AlquilaBo -->
+      <g transform="translate(16, 932)">
+        <rect x="0" y="0" width="343" height="122" rx="16" fill="#0B1F3A" />
+        <rect x="0" y="0" width="343" height="6" rx="3" fill="#16A34A" />
+        <text x="171" y="52" font-family="DejaVu Sans, Arial, Helvetica, sans-serif" font-size="23" font-weight="bold" fill="#F8FAFC" text-anchor="middle">Más información en</text>
+        <text x="171" y="92" font-family="DejaVu Sans, Arial, Helvetica, sans-serif" font-size="30" font-weight="bold" fill="#FFFFFF" text-anchor="middle">la app <tspan fill="#22C55E">AlquilaBO</tspan></text>
+      </g>
+    </svg>`;
+  }
+
+  private buildCityCoverRightOverlaySvg(input: CityCoverCardInput): string {
+    const cityUpper = this.escapeXml(
+      (input.city || 'BOLIVIA').toUpperCase().trim(),
+    );
+    const dateParts = this.formatPublicationDate(input.date);
+    const countLabel =
+      typeof input.totalProperties === 'number' && input.totalProperties > 0
+        ? `${input.totalProperties} INMUEBLE${input.totalProperties === 1 ? '' : 'S'} DISPONIBLE${input.totalProperties === 1 ? '' : 'S'}`
+        : 'NUEVOS INMUEBLES DISPONIBLES';
+
+    return `<svg width="705" height="1080" viewBox="0 0 705 1080" xmlns="http://www.w3.org/2000/svg">
+      <!-- Sombra oscura semitransparente inferior para resaltar la portada de ciudad -->
+      <rect x="0" y="720" width="705" height="360" fill="#0B1F3A" fill-opacity="0.88" />
+      <rect x="0" y="720" width="705" height="6" fill="#22C55E" />
+
+      <rect x="36" y="758" width="420" height="44" rx="22" fill="#16A34A" />
+      <text x="246" y="788" font-family="DejaVu Sans, Arial, Helvetica, sans-serif" font-size="20" font-weight="bold" fill="#FFFFFF" text-anchor="middle">${this.escapeXml(countLabel)}</text>
+
+      <text x="36" y="868" font-family="DejaVu Sans, Arial, Helvetica, sans-serif" font-size="54" font-weight="bold" fill="#FFFFFF">${cityUpper}</text>
+      <text x="36" y="925" font-family="DejaVu Sans, Arial, Helvetica, sans-serif" font-size="30" font-weight="bold" fill="#22C55E">PUBLICACIÓN DEL ${this.escapeXml(dateParts.longSpanishDate)}</text>
+      <text x="36" y="985" font-family="DejaVu Sans, Arial, Helvetica, sans-serif" font-size="24" font-weight="bold" fill="#E2E8F0">Desliza el carrusel para ver todas las opciones -&gt;</text>
+    </svg>`;
+  }
+
+  async generateCityCoverBuffer(
+    input: CityCoverCardInput,
+    format: 'png' | 'jpeg' = 'jpeg',
+  ): Promise<Buffer> {
+    const sources = this.getPhotoSources(input.samplePhotos ?? [], 3);
+    const loadedBuffers = await Promise.all(
+      sources.map((src) => this.loadPhotoBuffer(src)),
+    );
+    const validPhotos = loadedBuffers.filter((b): b is Buffer => b !== null);
+
+    const composites: sharp.OverlayOptions[] = [];
+
+    if (validPhotos.length >= 3) {
+      const [top1, top2, bottom3] = await Promise.all([
+        this.prepareTileBuffer(validPhotos[0], 348, 536),
+        this.prepareTileBuffer(validPhotos[1], 349, 536),
+        this.prepareTileBuffer(validPhotos[2], 705, 536),
+      ]);
+      composites.push(
+        { input: top1, left: 375, top: 0 },
+        { input: top2, left: 731, top: 0 },
+        { input: bottom3, left: 375, top: 544 },
+      );
+    } else if (validPhotos.length === 2) {
+      const [top1, bottom2] = await Promise.all([
+        this.prepareTileBuffer(validPhotos[0], 705, 536),
+        this.prepareTileBuffer(validPhotos[1], 705, 536),
+      ]);
+      composites.push(
+        { input: top1, left: 375, top: 0 },
+        { input: bottom2, left: 375, top: 544 },
+      );
+    } else {
+      const single = await this.prepareTileBuffer(
+        validPhotos[0] ?? null,
+        705,
+        1080,
+        { r: 11, g: 31, b: 58 },
+      );
+      composites.push({ input: single, left: 375, top: 0 });
+    }
+
+    // Banner superpuesto derecho con Ciudad + Fecha actual
+    const rightOverlaySvg = this.buildCityCoverRightOverlaySvg(input);
+    composites.push({
+      input: Buffer.from(rightOverlaySvg),
+      left: 375,
+      top: 0,
+    });
+
+    // Panel izquierdo blanco con fecha, ciudad y bullets
+    const leftPanelSvg = this.buildCityCoverLeftPanelSvg(input);
+    composites.push({
+      input: Buffer.from(leftPanelSvg),
+      left: 0,
+      top: 0,
+    });
+
+    // Logo oficial de AlquilaBO arriba a la izquierda
+    const logoBuffer = await this.loadLogoBuffer();
+    if (logoBuffer) {
+      composites.push({
+        input: logoBuffer,
+        left: 42,
+        top: 18,
+      });
+    }
+
+    const pipeline = sharp({
+      create: {
+        width: 1080,
+        height: 1080,
+        channels: 4,
+        background: { r: 15, g: 23, b: 42, alpha: 1 },
+      },
+    }).composite(composites);
+
+    if (format === 'jpeg') {
+      return pipeline.jpeg({ quality: 92 }).toBuffer();
+    }
+    return pipeline.png({ quality: 92 }).toBuffer();
+  }
+
   async generateSocialCardBuffer(
     property: SocialCardPropertyInput,
     appLink: string,
+    format: 'png' | 'jpeg' = 'png',
   ): Promise<Buffer> {
     // 1. Tomar máximo 3 imágenes subidas a la app
     const sources = this.getPhotoSources(property.images, 3);
@@ -407,26 +666,34 @@ export class SocialCardService {
     }
 
     // Lienzo base 1080x1080 con fondo oscuro para las líneas divisorias entre las 3 fotos
-    return sharp({
+    const pipeline = sharp({
       create: {
         width: 1080,
         height: 1080,
         channels: 4,
         background: { r: 15, g: 23, b: 42, alpha: 1 },
       },
-    })
-      .composite(composites)
-      .png({ quality: 92 })
-      .toBuffer();
+    }).composite(composites);
+
+    if (format === 'jpeg') {
+      return pipeline.jpeg({ quality: 92 }).toBuffer();
+    }
+    return pipeline.png({ quality: 92 }).toBuffer();
   }
 
   async generateAndSaveSocialCard(
     property: SocialCardPropertyInput,
     appLink: string,
+    format: 'png' | 'jpeg' = 'png',
   ): Promise<{ buffer: Buffer; filePath: string; fileName: string }> {
-    const buffer = await this.generateSocialCardBuffer(property, appLink);
+    const buffer = await this.generateSocialCardBuffer(
+      property,
+      appLink,
+      format,
+    );
     await fs.mkdir(this.outputDir, { recursive: true });
-    const fileName = `alquilabo-${property.id}.png`;
+    const ext = format === 'jpeg' ? 'jpg' : 'png';
+    const fileName = `alquilabo-${property.id}.${ext}`;
     const filePath = path.join(this.outputDir, fileName);
     await fs.writeFile(filePath, buffer);
     return { buffer, filePath, fileName };

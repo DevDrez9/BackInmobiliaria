@@ -207,21 +207,13 @@ export class DiffusionsService {
   }
 
   buildFinalSocialCaption(postText: string, urlMapa: string): string {
-    const trimmed = (postText || '').trim();
-    const hasAlquilaBoFooter = /m[aá]s informaci[oó]n en (la app )?alquilabo/i.test(
-      trimmed,
-    );
-    const hasLink = trimmed.includes(urlMapa);
+    const cleaned = (postText || '')
+      .replace(/\n*✨\s*M[aá]s informaci[oó]n en (la app )?AlquilaBo[\s\S]*$/i, '')
+      .replace(/\n*🗺️\s*Ver zona en el mapa:[\s\S]*$/i, '')
+      .replace(/\n*🔗\s*https?:\/\/\S+\s*$/i, '')
+      .trim();
 
-    if (hasAlquilaBoFooter && hasLink) {
-      return trimmed;
-    }
-
-    if (hasAlquilaBoFooter && !hasLink) {
-      return `${trimmed}\n🔗 ${urlMapa}`;
-    }
-
-    return `${trimmed}\n\n✨ Más información en la app AlquilaBo\n🔗 ${urlMapa}`;
+    return `${cleaned}\n\n✨ Más información en la app AlquilaBo\n🔗 ${urlMapa}`;
   }
 
   async getQuotaForUser(userId: string) {
@@ -421,6 +413,8 @@ export class DiffusionsService {
     );
     const imagenGeneradaUrl = `${publicApiBaseUrl}/public/diffusions/${diffusion.id}/social-card.png`;
     const imagenGeneradaInternalUrl = `${callbackBaseUrl}/public/diffusions/${diffusion.id}/social-card.png`;
+    const imagenGeneradaJpgUrl = `${publicApiBaseUrl}/public/diffusions/${diffusion.id}/social-card.jpg`;
+    const imagenGeneradaInternalJpgUrl = `${callbackBaseUrl}/public/diffusions/${diffusion.id}/social-card.jpg`;
 
     return {
       difusion_id: diffusion.id,
@@ -440,6 +434,8 @@ export class DiffusionsService {
       foto_principal_url: fotos[0] || null,
       imagen_generada_url: imagenGeneradaUrl,
       imagen_generada_internal_url: imagenGeneradaInternalUrl,
+      imagen_generada_jpg_url: imagenGeneradaJpgUrl,
+      imagen_generada_internal_jpg_url: imagenGeneradaInternalJpgUrl,
       texto_post: diffusion.postText,
       caption_redes: captionRedes,
       fotos,
@@ -447,11 +443,15 @@ export class DiffusionsService {
       verificado: prop.isVerified,
       prev_fb_post_id: diffusion.fbPostId ?? null,
       prev_ig_media_id: diffusion.igMediaId ?? null,
+      prev_tiktok_post_id: diffusion.tiktokPostId ?? null,
       callback_url: `${callbackBaseUrl}/webhooks/n8n/diffusion`,
     };
   }
 
-  async getDiffusionSocialCardBuffer(diffusionId: string): Promise<Buffer> {
+  async getDiffusionSocialCardBuffer(
+    diffusionId: string,
+    format: 'png' | 'jpeg' = 'png',
+  ): Promise<Buffer> {
     const diffusion = await this.prisma.socialDiffusion.findUnique({
       where: { id: diffusionId },
       include: { property: true },
@@ -464,11 +464,15 @@ export class DiffusionsService {
     const { buffer } = await this.socialCardService.generateAndSaveSocialCard(
       diffusion.property,
       appUrl,
+      format,
     );
     return buffer;
   }
 
-  async getPropertySocialCardBuffer(propertyId: string): Promise<Buffer> {
+  async getPropertySocialCardBuffer(
+    propertyId: string,
+    format: 'png' | 'jpeg' = 'png',
+  ): Promise<Buffer> {
     const property = await this.prisma.property.findUnique({
       where: { id: propertyId },
     });
@@ -480,8 +484,70 @@ export class DiffusionsService {
     const { buffer } = await this.socialCardService.generateAndSaveSocialCard(
       property,
       appUrl,
+      format,
     );
     return buffer;
+  }
+
+  async getCityCoverCardBuffer(
+    city: string,
+    options?: {
+      date?: string;
+      count?: number;
+      format?: 'png' | 'jpeg';
+    },
+  ): Promise<Buffer> {
+    const cleanCity = decodeURIComponent(city || 'Bolivia').trim() || 'Bolivia';
+    const format = options?.format || 'jpeg';
+
+    // Buscar fotos de inmuebles aprobados/activos en esa ciudad para ilustrar el mosaico de portada
+    let samplePhotos: string[] = [];
+    let resolvedCount = options?.count;
+
+    try {
+      const approvedDiffusions = await this.prisma.socialDiffusion.findMany({
+        where: {
+          status: { in: ['APROBADO', 'PUBLICADO'] },
+          property: { city: cleanCity, status: 'ACTIVO' },
+        },
+        orderBy: { reviewedAt: 'desc' },
+        take: 6,
+        include: { property: true },
+      });
+
+      if (
+        (resolvedCount === undefined || resolvedCount === null) &&
+        approvedDiffusions.length > 0
+      ) {
+        resolvedCount = approvedDiffusions.length;
+      }
+
+      for (const diff of approvedDiffusions) {
+        const imgs = Array.isArray(diff.property?.images)
+          ? (diff.property.images as unknown[])
+          : [];
+        for (const img of imgs) {
+          if (typeof img === 'string' && img.trim().length > 0) {
+            samplePhotos.push(img.trim());
+            if (samplePhotos.length >= 3) break;
+          }
+        }
+        if (samplePhotos.length >= 3) break;
+      }
+    } catch {
+      samplePhotos = [];
+    }
+
+    return this.socialCardService.generateCityCoverBuffer(
+      {
+        city: cleanCity,
+        date: options?.date,
+        totalProperties: resolvedCount,
+        samplePhotos,
+        appLink: this.buildPropertyAppUrl(),
+      },
+      format,
+    );
   }
 
   async getQueueStats() {
@@ -743,7 +809,7 @@ export class DiffusionsService {
       });
     }
 
-    await this.prisma.socialDiffusion.update({
+    const approvedRecord = await this.prisma.socialDiffusion.update({
       where: { id },
       data: {
         status: 'APROBADO',
@@ -756,7 +822,22 @@ export class DiffusionsService {
           ? { internalNotes: dto.internalNotes }
           : {}),
       },
+      include: {
+        approvedBy: { select: { id: true, name: true, role: true } },
+      },
     });
+
+    const scheduleMode = (
+      process.env.DIFFUSION_SCHEDULE_MODE || ''
+    ).toUpperCase();
+    // Si está en modo lote diario a las 00:00 (DAILY_00) o no hay webhook individual configurado,
+    // queda en estado APROBADO para salir en el carrusel diario de las 00:00 agrupado por ciudad.
+    if (
+      scheduleMode === 'DAILY_00' ||
+      !process.env.N8N_DIFFUSION_WEBHOOK_URL
+    ) {
+      return approvedRecord;
+    }
 
     return this.dispatchToN8n(id);
   }
@@ -866,46 +947,234 @@ export class DiffusionsService {
   }
 
   async handleN8nCallback(dto: N8nDiffusionCallbackDto) {
-    const diffusion = await this.prisma.socialDiffusion.findUnique({
-      where: { id: dto.difusion_id },
-      include: { property: true },
-    });
-    if (!diffusion) {
-      throw new NotFoundException('Difusión no encontrada');
+    const rawIds =
+      Array.isArray(dto.difusion_ids) && dto.difusion_ids.length > 0
+        ? dto.difusion_ids
+        : dto.difusion_id
+          ? [dto.difusion_id]
+          : [];
+
+    const ids = Array.from(
+      new Set(rawIds.map((x) => String(x || '').trim()).filter(Boolean)),
+    );
+
+    if (ids.length === 0) {
+      throw new BadRequestException(
+        'Debe proporcionar difusion_id o difusion_ids en el callback',
+      );
     }
 
     const isError =
       dto.estado.toUpperCase() === 'ERROR' || Boolean(dto.error);
 
-    const updated = await this.prisma.socialDiffusion.update({
-      where: { id: diffusion.id },
-      data: {
-        status: isError ? 'ERROR' : 'PUBLICADO',
-        fbPostId: dto.fb_post_id ?? diffusion.fbPostId,
-        igMediaId: dto.ig_media_id ?? diffusion.igMediaId,
-        errorDetail: dto.error ?? null,
-        publishedAt: isError ? diffusion.publishedAt : new Date(),
-      },
-    });
+    const results: any[] = [];
 
-    if (!isError) {
-      await this.prisma.notification.create({
+    for (const diffId of ids) {
+      const diffusion = await this.prisma.socialDiffusion.findUnique({
+        where: { id: diffId },
+        include: { property: true },
+      });
+
+      if (!diffusion) {
+        if (ids.length === 1) {
+          throw new NotFoundException('Difusión no encontrada');
+        }
+        continue;
+      }
+
+      const wasAlreadyPublished = diffusion.status === 'PUBLICADO';
+      const nextStatus = isError
+        ? wasAlreadyPublished
+          ? 'PUBLICADO'
+          : 'ERROR'
+        : 'PUBLICADO';
+
+      const updated = await this.prisma.socialDiffusion.update({
+        where: { id: diffusion.id },
         data: {
-          userId: diffusion.property.userId,
-          title: '¡Tu inmueble ya está en nuestras redes sociales!',
-          message: `"${diffusion.property.title}" fue publicado exitosamente en nuestras redes oficiales.`,
-          type: 'DIFFUSION_PUBLISHED',
-          metadata: {
-            diffusionId: diffusion.id,
-            propertyId: diffusion.propertyId,
-            fbPostId: updated.fbPostId,
-            igMediaId: updated.igMediaId,
-          },
+          status: nextStatus,
+          fbPostId: dto.fb_post_id ?? diffusion.fbPostId,
+          igMediaId: dto.ig_media_id ?? diffusion.igMediaId,
+          tiktokPostId: dto.tiktok_post_id ?? diffusion.tiktokPostId,
+          errorDetail: dto.error ?? (isError ? diffusion.errorDetail : null),
+          publishedAt: isError
+            ? diffusion.publishedAt
+            : (diffusion.publishedAt ?? new Date()),
         },
       });
+
+      if (!isError && !wasAlreadyPublished && diffusion.property?.userId) {
+        await this.prisma.notification.create({
+          data: {
+            userId: diffusion.property.userId,
+            title: '¡Tu inmueble ya está en nuestras redes sociales!',
+            message: `"${diffusion.property.title}" fue publicado exitosamente en nuestras redes oficiales.`,
+            type: 'DIFFUSION_PUBLISHED',
+            metadata: {
+              diffusionId: diffusion.id,
+              propertyId: diffusion.propertyId,
+              fbPostId: updated.fbPostId,
+              igMediaId: updated.igMediaId,
+              tiktokPostId: updated.tiktokPostId,
+            },
+          },
+        });
+      }
+
+      results.push(updated);
     }
 
-    return updated;
+    return results.length === 1 ? results[0] : { updatedCount: results.length, items: results };
+  }
+
+  /**
+   * Agrupa todas las difusiones aprobadas pendientes de publicación por CIUDAD
+   * para los workflows diarios de las 00:00 (Meta FB+IG y TikTok).
+   * La primera imagen de cada carrusel es la portada de la ciudad con la fecha actual.
+   */
+  async getDailyCityBatchesForN8n(options?: {
+    network?: 'meta' | 'tiktok' | 'all' | string;
+    date?: string;
+  }) {
+    const network = String(options?.network || 'all').toLowerCase();
+    const dateParts = this.socialCardService.formatPublicationDate(
+      options?.date,
+    );
+
+    const callbackBaseUrl = (
+      process.env.N8N_CALLBACK_BASE_URL ||
+      process.env.PUBLIC_API_BASE_URL ||
+      'http://backend:3000'
+    ).replace(/\/+$/, '');
+    const publicApiBaseUrl = (
+      process.env.PUBLIC_API_BASE_URL || callbackBaseUrl
+    ).replace(/\/+$/, '');
+
+    const whereClause: any = {
+      property: { status: 'ACTIVO' },
+    };
+
+    if (network === 'tiktok') {
+      whereClause.status = { in: ['APROBADO', 'PUBLICADO'] };
+      whereClause.approvedById = { not: null };
+      whereClause.tiktokPostId = null;
+    } else if (network === 'meta') {
+      whereClause.status = { in: ['APROBADO', 'PUBLICADO'] };
+      whereClause.approvedById = { not: null };
+      whereClause.OR = [{ fbPostId: null }, { igMediaId: null }];
+    } else {
+      whereClause.status = 'APROBADO';
+    }
+
+    const diffusions = await this.prisma.socialDiffusion.findMany({
+      where: whereClause,
+      orderBy: [{ reviewedAt: 'asc' }, { createdAt: 'asc' }],
+      include: { property: true },
+    });
+
+    const groupedByCity: Record<string, any[]> = {};
+    for (const d of diffusions) {
+      if (!d.property) continue;
+      const cityKey = (d.property.city || 'Bolivia').trim() || 'Bolivia';
+      if (!groupedByCity[cityKey]) {
+        groupedByCity[cityKey] = [];
+      }
+      groupedByCity[cityKey].push(d);
+    }
+
+    const cities = Object.entries(groupedByCity).map(([city, cityDiffs]) => {
+      const count = cityDiffs.length;
+      const encodedCity = encodeURIComponent(city);
+      const queryParams = `date=${encodeURIComponent(dateParts.isoDate)}&count=${count}`;
+
+      const coverImageJpgUrl = `${publicApiBaseUrl}/public/diffusions/city-cover/${encodedCity}/social-card.jpg?${queryParams}`;
+      const coverImagePngUrl = `${publicApiBaseUrl}/public/diffusions/city-cover/${encodedCity}/social-card.png?${queryParams}`;
+      const coverImageInternalJpgUrl = `${callbackBaseUrl}/public/diffusions/city-cover/${encodedCity}/social-card.jpg?${queryParams}`;
+      const coverImageInternalPngUrl = `${callbackBaseUrl}/public/diffusions/city-cover/${encodedCity}/social-card.png?${queryParams}`;
+
+      const items = cityDiffs.map((diff, idx) => {
+        const payload = this.buildN8nPayload(diff);
+        return {
+          index: idx + 1,
+          ...payload,
+        };
+      });
+
+      const propertyLines = items.map((item) => {
+        const zoneText =
+          item.zona && item.zona.toLowerCase() !== city.toLowerCase()
+            ? ` (${item.zona})`
+            : '';
+        const bedsText =
+          item.dormitorios !== null && item.dormitorios !== undefined
+            ? ` • 🛏️ ${item.dormitorios} dorm.`
+            : '';
+        return (
+          `🔹 ${item.index}. En ${item.tipo_operacion.toUpperCase()} — ${item.titulo}${zoneText}${bedsText}\n` +
+          `🔗 ${item.url_mapa}`
+        );
+      });
+
+      const cityHashtag = city.replace(/\s+/g, '');
+      const cityCaption =
+        `🏘️ ¡Nuevos inmuebles disponibles en ${city}! (${dateParts.slashDate})\n` +
+        `📅 Publicación del ${dateParts.longSpanishDate}\n\n` +
+        propertyLines.join('\n\n') +
+        `\n\n✨ Más información en la app AlquilaBo\n` +
+        `🔗 ${this.buildPropertyAppUrl()}\n` +
+        `#AlquilaBo #${cityHashtag} #InmueblesBolivia #Alquiler #Venta #Anticretico`;
+
+      const tiktokTitle =
+        `🏠 Inmuebles en ${city} (${dateParts.slashDate}) — Desliza para ver las ${count} opciones de hoy 👉 #AlquilaBo #${cityHashtag} #Bolivia #Inmuebles`.slice(
+          0,
+          90,
+        );
+
+      return {
+        city,
+        publicationDateIso: dateParts.isoDate,
+        publicationDateDisplay: dateParts.slashDate,
+        publicationDateLong: dateParts.longSpanishDate,
+        totalApproved: count,
+        diffusionIds: items.map((i) => i.difusion_id),
+        coverImageJpgUrl,
+        coverImagePngUrl,
+        coverImageInternalJpgUrl,
+        coverImageInternalPngUrl,
+        // El carrusel siempre tiene como PRIMERA imagen la portada de la ciudad con la fecha actual
+        carouselImagesJpg: [
+          coverImageJpgUrl,
+          ...items.map((i) => i.imagen_generada_jpg_url),
+        ],
+        carouselImagesInternalJpg: [
+          coverImageInternalJpgUrl,
+          ...items.map((i) => i.imagen_generada_internal_jpg_url),
+        ],
+        carouselImagesPng: [
+          coverImagePngUrl,
+          ...items.map((i) => i.imagen_generada_url),
+        ],
+        carouselImagesInternalPng: [
+          coverImageInternalPngUrl,
+          ...items.map((i) => i.imagen_generada_internal_url),
+        ],
+        cityCaption,
+        tiktokTitle,
+        tiktokDescription: cityCaption.slice(0, 3900),
+        callbackUrl: `${callbackBaseUrl}/webhooks/n8n/diffusion`,
+        items,
+      };
+    });
+
+    return {
+      network,
+      publicationDateIso: dateParts.isoDate,
+      publicationDateDisplay: dateParts.slashDate,
+      publicationDateLong: dateParts.longSpanishDate,
+      totalDiffusions: diffusions.length,
+      totalCities: cities.length,
+      cities,
+    };
   }
 
   async getWeeklySummaryForN8n() {

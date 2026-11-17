@@ -1,6 +1,44 @@
 {
-  "name": "Inmobiliaria - Difusion de Inmueble (FB + IG)",
+  "name": "Inmobiliaria - Difusion Diaria 00:00 por Ciudad (FB + IG)",
   "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "0 0 * * *"
+            }
+          ]
+        }
+      },
+      "id": "b1f2c3d4-0001-4000-8000-000000000010",
+      "name": "Cada Dia 00:00 AM",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [220, 180]
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "={{ ($env.BACKEND_INTERNAL_URL || 'http://backend:3000') + '/n8n/daily-diffusions?network=meta' }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-Webhook-Secret",
+              "value": "={{ $env.N8N_WEBHOOK_SECRET }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "b1f2c3d4-0001-4000-8000-000000000011",
+      "name": "Obtener Aprobados por Ciudad (Meta)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [480, 180]
+    },
     {
       "parameters": {
         "httpMethod": "POST",
@@ -9,10 +47,10 @@
         "options": {}
       },
       "id": "b1f2c3d4-0001-4000-8000-000000000001",
-      "name": "Webhook Difusion",
+      "name": "Webhook Difusion Manual",
       "type": "n8n-nodes-base.webhook",
       "typeVersion": 2,
-      "position": [240, 300],
+      "position": [220, 420],
       "webhookId": "difusion-inmueble-webhook"
     },
     {
@@ -42,49 +80,43 @@
       "name": "Validar X-Webhook-Secret",
       "type": "n8n-nodes-base.if",
       "typeVersion": 2,
-      "position": [480, 300]
+      "position": [480, 420]
     },
     {
       "parameters": {
-        "jsCode": "// Nodo de publicacion en Facebook Page + Instagram Business usando la imagen generada de AlquilaBo\nconst body = $input.first().json.body || $input.first().json;\n\nconst pageId = $env.META_PAGE_ID;\nconst igUserId = $env.META_IG_USER_ID;\nconst accessToken = $env.META_PAGE_ACCESS_TOKEN;\n\nlet fbPostId = body.prev_fb_post_id || null;\nlet igMediaId = body.prev_ig_media_id || null;\nconst errors = [];\n\nconst generatedImageUrl = body.imagen_generada_url || (Array.isArray(body.fotos) ? body.fotos[0] : null);\nconst internalImageUrl = body.imagen_generada_internal_url || generatedImageUrl;\n\n// Texto del post con datos recopilados + \"Más información en AlquilaBo\" y el link de la aplicación abajo\nconst rawCaption = (body.caption_redes || body.texto_post || '').trim();\nconst socialCaption = /m[aá]s informaci[oó]n en alquilabo/i.test(rawCaption)\n  ? rawCaption\n  : `${rawCaption}\\n\\n✨ Más información en AlquilaBo\\n🔗 ${body.url_mapa}`;\n\nif (!accessToken) {\n  errors.push('Falta configurar META_PAGE_ACCESS_TOKEN en las variables de entorno de n8n');\n} else if (!generatedImageUrl) {\n  errors.push('No se encontró la URL de la imagen generada (imagen_generada_url) para publicar');\n} else {\n  // 1. Publicar la imagen generada en Facebook Page\n  if (pageId && !fbPostId) {\n    try {\n      const isLocalOrPlaceholder = /localhost|127\\.0\\.0\\.1|backend:|tuapp\\.com/i.test(generatedImageUrl);\n      let fbRes = null;\n\n      if (!isLocalOrPlaceholder) {\n        try {\n          fbRes = await this.helpers.httpRequest({\n            method: 'POST',\n            url: `https://graph.facebook.com/v21.0/${pageId}/photos`,\n            body: {\n              url: generatedImageUrl,\n              caption: socialCaption,\n              published: true,\n              access_token: accessToken,\n            },\n            json: true,\n          });\n        } catch (urlErr) {\n          fbRes = null;\n        }\n      }\n\n      // Si el backend corre en red interna de Docker o sin dominio público aún, descargamos el PNG generado y lo subimos como binario a Facebook\n      if (!fbRes || (!fbRes.post_id && !fbRes.id)) {\n        const imgBuffer = await this.helpers.httpRequest({\n          method: 'GET',\n          url: internalImageUrl,\n          encoding: null,\n        });\n\n        fbRes = await this.helpers.httpRequest({\n          method: 'POST',\n          url: `https://graph.facebook.com/v21.0/${pageId}/photos`,\n          formData: {\n            caption: socialCaption,\n            published: 'true',\n            access_token: accessToken,\n            source: {\n              value: imgBuffer,\n              options: {\n                filename: `alquilabo-${body.inmueble_id || 'propiedad'}.png`,\n                contentType: 'image/png',\n              },\n            },\n          },\n          json: true,\n        });\n      }\n\n      fbPostId = fbRes.post_id || fbRes.id || null;\n    } catch (err) {\n      errors.push(`Facebook Error: ${err.message || String(err)}`);\n    }\n  }\n\n  // 2. Publicar la misma imagen generada en Instagram Business\n  if (igUserId && !igMediaId) {\n    try {\n      const singleContainer = await this.helpers.httpRequest({\n        method: 'POST',\n        url: `https://graph.facebook.com/v21.0/${igUserId}/media`,\n        body: {\n          image_url: generatedImageUrl,\n          caption: socialCaption,\n          access_token: accessToken,\n        },\n        json: true,\n      });\n\n      if (singleContainer && singleContainer.id) {\n        const publishRes = await this.helpers.httpRequest({\n          method: 'POST',\n          url: `https://graph.facebook.com/v21.0/${igUserId}/media_publish`,\n          body: {\n            creation_id: singleContainer.id,\n            access_token: accessToken,\n          },\n          json: true,\n        });\n        igMediaId = publishRes.id || null;\n      }\n    } catch (err) {\n      errors.push(`Instagram Error: ${err.message || String(err)}`);\n    }\n  }\n}\n\nreturn [\n  {\n    json: {\n      callback_url: body.callback_url,\n      payload: {\n        difusion_id: body.difusion_id,\n        estado: errors.length > 0 ? 'error' : 'publicado',\n        fb_post_id: fbPostId,\n        ig_media_id: igMediaId,\n        error: errors.length > 0 ? errors.join(' | ') : null,\n      },\n    },\n  },\n];\n"
+        "jsCode": "// Publicacion Diaria 00:00 por Ciudad en Facebook Page + Instagram Business\n// Primera imagen del carrusel: Portada de la ciudad con la fecha actual de publicacion\n// Siguientes imagenes: Tarjetas de todos los inmuebles aprobados de esa ciudad\nconst rawInput = $input.first().json.body || $input.first().json;\n\nconst pageId = $env.META_PAGE_ID;\nconst igUserId = $env.META_IG_USER_ID;\nconst accessToken = $env.META_PAGE_ACCESS_TOKEN;\nconst webhookSecret = $env.N8N_WEBHOOK_SECRET;\n\n// Normalizar si viene del lote diario por ciudades (/n8n/daily-diffusions) o de un webhook individual\nlet cityBatches = [];\nif (Array.isArray(rawInput.cities)) {\n  cityBatches = rawInput.cities;\n} else if (rawInput.difusion_id) {\n  const city = rawInput.ciudad || 'Bolivia';\n  const encodedCity = encodeURIComponent(city);\n  const pubBase = (rawInput.imagen_generada_jpg_url || rawInput.imagen_generada_url || '').split('/public/')[0];\n  const intBase = (rawInput.imagen_generada_internal_jpg_url || rawInput.imagen_generada_internal_url || pubBase).split('/public/')[0];\n  const coverPub = `${pubBase}/public/diffusions/city-cover/${encodedCity}/social-card.jpg?count=1`;\n  const coverInt = `${intBase}/public/diffusions/city-cover/${encodedCity}/social-card.jpg?count=1`;\n  const cardPub = rawInput.imagen_generada_jpg_url || rawInput.imagen_generada_url;\n  const cardInt = rawInput.imagen_generada_internal_jpg_url || rawInput.imagen_generada_internal_url || cardPub;\n\n  cityBatches = [\n    {\n      city,\n      diffusionIds: [rawInput.difusion_id],\n      carouselImagesJpg: [coverPub, cardPub],\n      carouselImagesInternalJpg: [coverInt, cardInt],\n      cityCaption: rawInput.caption_redes || rawInput.texto_post || '',\n      callbackUrl: rawInput.callback_url,\n    },\n  ];\n}\n\nif (!cityBatches.length) {\n  return [];\n}\n\nconst results = [];\n\nfor (const batch of cityBatches) {\n  const errors = [];\n  let fbPostId = null;\n  let igMediaId = null;\n\n  const publicUrls = Array.isArray(batch.carouselImagesJpg) ? batch.carouselImagesJpg : [];\n  const internalUrls = Array.isArray(batch.carouselImagesInternalJpg) && batch.carouselImagesInternalJpg.length === publicUrls.length\n    ? batch.carouselImagesInternalJpg\n    : publicUrls;\n  const caption = (batch.cityCaption || '').trim();\n\n  if (!accessToken) {\n    errors.push('Falta configurar META_PAGE_ACCESS_TOKEN en las variables de entorno de n8n');\n  } else if (publicUrls.length === 0) {\n    errors.push(`No hay imagenes para publicar en la ciudad ${batch.city}`);\n  } else {\n    // 1. FACEBOOK PAGE: Subir cada imagen (Portada Ciudad + Fecha actual primero, luego fichas) como unpublished y publicar carrusel/album\n    if (pageId) {\n      try {\n        const mediaFbIds = [];\n        for (let i = 0; i < publicUrls.length; i++) {\n          const pubUrl = publicUrls[i];\n          const intUrl = internalUrls[i] || pubUrl;\n          const isLocal = /localhost|127\\.0\\.0\\.1|backend:|tuapp\\.com/i.test(pubUrl);\n          let photoRes = null;\n\n          if (!isLocal) {\n            try {\n              photoRes = await this.helpers.httpRequest({\n                method: 'POST',\n                url: `https://graph.facebook.com/v21.0/${pageId}/photos`,\n                body: {\n                  url: pubUrl,\n                  published: false,\n                  access_token: accessToken,\n                },\n                json: true,\n              });\n            } catch (e) {\n              photoRes = null;\n            }\n          }\n\n          if (!photoRes || !photoRes.id) {\n            const imgBuffer = await this.helpers.httpRequest({\n              method: 'GET',\n              url: intUrl,\n              encoding: null,\n            });\n\n            photoRes = await this.helpers.httpRequest({\n              method: 'POST',\n              url: `https://graph.facebook.com/v21.0/${pageId}/photos`,\n              formData: {\n                published: 'false',\n                access_token: accessToken,\n                source: {\n                  value: imgBuffer,\n                  options: {\n                    filename: `alquilabo-${batch.city}-${i}.jpg`,\n                    contentType: 'image/jpeg',\n                  },\n                },\n              },\n              json: true,\n            });\n          }\n\n          if (photoRes && photoRes.id) {\n            mediaFbIds.push({ media_fbid: photoRes.id });\n          }\n        }\n\n        if (mediaFbIds.length > 0) {\n          const feedRes = await this.helpers.httpRequest({\n            method: 'POST',\n            url: `https://graph.facebook.com/v21.0/${pageId}/feed`,\n            body: {\n              message: caption,\n              attached_media: mediaFbIds,\n              access_token: accessToken,\n            },\n            json: true,\n          });\n          fbPostId = feedRes.id || feedRes.post_id || null;\n        }\n      } catch (err) {\n        errors.push(`Facebook (${batch.city}): ${err.message || String(err)}`);\n      }\n    }\n\n    // 2. INSTAGRAM BUSINESS: Publicar Carrusel (hasta 10 imagenes por post de ciudad, primera = portada ciudad + fecha)\n    if (igUserId) {\n      try {\n        const igImages = publicUrls.slice(0, 10);\n        if (igImages.length === 1) {\n          const singleContainer = await this.helpers.httpRequest({\n            method: 'POST',\n            url: `https://graph.facebook.com/v21.0/${igUserId}/media`,\n            body: {\n              image_url: igImages[0],\n              caption,\n              access_token: accessToken,\n            },\n            json: true,\n          });\n          if (singleContainer && singleContainer.id) {\n            const publishRes = await this.helpers.httpRequest({\n              method: 'POST',\n              url: `https://graph.facebook.com/v21.0/${igUserId}/media_publish`,\n              body: {\n                creation_id: singleContainer.id,\n                access_token: accessToken,\n              },\n              json: true,\n            });\n            igMediaId = publishRes.id || null;\n          }\n        } else {\n          const childIds = [];\n          for (const imgUrl of igImages) {\n            const childRes = await this.helpers.httpRequest({\n              method: 'POST',\n              url: `https://graph.facebook.com/v21.0/${igUserId}/media`,\n              body: {\n                image_url: imgUrl,\n                is_carousel_item: true,\n                access_token: accessToken,\n              },\n              json: true,\n            });\n            if (childRes && childRes.id) {\n              childIds.push(childRes.id);\n            }\n          }\n\n          if (childIds.length > 0) {\n            const carouselContainer = await this.helpers.httpRequest({\n              method: 'POST',\n              url: `https://graph.facebook.com/v21.0/${igUserId}/media`,\n              body: {\n                media_type: 'CAROUSEL',\n                children: childIds.join(','),\n                caption,\n                access_token: accessToken,\n              },\n              json: true,\n            });\n\n            if (carouselContainer && carouselContainer.id) {\n              const publishRes = await this.helpers.httpRequest({\n                method: 'POST',\n                url: `https://graph.facebook.com/v21.0/${igUserId}/media_publish`,\n                body: {\n                  creation_id: carouselContainer.id,\n                  access_token: accessToken,\n                },\n                json: true,\n              });\n              igMediaId = publishRes.id || null;\n            }\n          }\n        }\n      } catch (err) {\n        errors.push(`Instagram (${batch.city}): ${err.message || String(err)}`);\n      }\n    }\n  }\n\n  const callbackPayload = {\n    difusion_ids: batch.diffusionIds,\n    difusion_id: batch.diffusionIds[0],\n    ciudad: batch.city,\n    network: 'meta',\n    estado: errors.length > 0 && !fbPostId && !igMediaId ? 'error' : 'publicado',\n    fb_post_id: fbPostId,\n    ig_media_id: igMediaId,\n    error: errors.length > 0 ? errors.join(' | ') : null,\n  };\n\n  if (batch.callbackUrl) {\n    try {\n      await this.helpers.httpRequest({\n        method: 'POST',\n        url: batch.callbackUrl,\n        headers: {\n          'X-Webhook-Secret': webhookSecret,\n          'Content-Type': 'application/json',\n        },\n        body: callbackPayload,\n        json: true,\n      });\n    } catch (cbErr) {\n      errors.push(`Callback Error: ${cbErr.message || String(cbErr)}`);\n    }\n  }\n\n  results.push({\n    json: {\n      city: batch.city,\n      totalPublished: batch.diffusionIds.length,\n      fb_post_id: fbPostId,\n      ig_media_id: igMediaId,\n      errors,\n    },\n  });\n}\n\nreturn results;\n"
       },
       "id": "b1f2c3d4-0003-4000-8000-000000000003",
-      "name": "Publicar FB e IG (Graph API)",
+      "name": "Publicar Carrusel por Ciudad (FB e IG)",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
-      "position": [740, 260]
-    },
-    {
-      "parameters": {
-        "method": "POST",
-        "url": "={{ $json.callback_url }}",
-        "sendHeaders": true,
-        "headerParameters": {
-          "parameters": [
-            {
-              "name": "X-Webhook-Secret",
-              "value": "={{ $env.N8N_WEBHOOK_SECRET }}"
-            },
-            {
-              "name": "Content-Type",
-              "value": "application/json"
-            }
-          ]
-        },
-        "sendBody": true,
-        "specifyBody": "json",
-        "jsonBody": "={{ JSON.stringify($json.payload) }}",
-        "options": {}
-      },
-      "id": "b1f2c3d4-0004-4000-8000-000000000004",
-      "name": "Callback al Backend NestJS",
-      "type": "n8n-nodes-base.httpRequest",
-      "typeVersion": 4.2,
-      "position": [1000, 260]
+      "position": [780, 280]
     }
   ],
   "connections": {
-    "Webhook Difusion": {
+    "Cada Dia 00:00 AM": {
+      "main": [
+        [
+          {
+            "node": "Obtener Aprobados por Ciudad (Meta)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Obtener Aprobados por Ciudad (Meta)": {
+      "main": [
+        [
+          {
+            "node": "Publicar Carrusel por Ciudad (FB e IG)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Webhook Difusion Manual": {
       "main": [
         [
           {
@@ -99,18 +131,7 @@
       "main": [
         [
           {
-            "node": "Publicar FB e IG (Graph API)",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Publicar FB e IG (Graph API)": {
-      "main": [
-        [
-          {
-            "node": "Callback al Backend NestJS",
+            "node": "Publicar Carrusel por Ciudad (FB e IG)",
             "type": "main",
             "index": 0
           }

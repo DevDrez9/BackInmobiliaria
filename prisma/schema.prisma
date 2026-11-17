@@ -301,6 +301,7 @@ model SocialDiffusion {
   reviewedAt      DateTime?
   fbPostId        String?
   igMediaId       String?
+  tiktokPostId    String?
   errorDetail     String?         @db.Text
   publishedAt     DateTime?
   createdAt       DateTime        @default(now())

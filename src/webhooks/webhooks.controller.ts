@@ -7,6 +7,7 @@ import {
   HttpCode,
   Logger,
   Post,
+  Query,
   Req,
   UnauthorizedException,
 } from '@nestjs/common';
@@ -115,6 +116,19 @@ export class WebhooksController {
     this.assertN8nSecret(secret);
     await this.diffusionsService.handleN8nCallback(dto);
     return { status: 'ok' };
+  }
+
+  @Get(['n8n/daily-diffusions', 'n8n/difusiones-diarias'])
+  async getN8nDailyDiffusions(
+    @Headers('x-webhook-secret') secret: string | undefined,
+    @Query('network') network?: string,
+    @Query('date') date?: string,
+  ) {
+    this.assertN8nSecret(secret);
+    return this.diffusionsService.getDailyCityBatchesForN8n({
+      network,
+      date,
+    });
   }
 
   @Get(['n8n/weekly-summary', 'n8n/resumen-semanal'])

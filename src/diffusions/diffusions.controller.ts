@@ -56,14 +56,76 @@ export class PublicDiffusionsController {
     res.end(buf);
   }
 
+  @Get('diffusions/city-cover/:city/social-card.jpg')
+  async getCityCoverSocialCardJpg(
+    @Param('city') city: string,
+    @Query('date') date: string | undefined,
+    @Query('count') count: string | undefined,
+    @Res() res: Response,
+  ) {
+    const parsedCount = count ? parseInt(count, 10) : undefined;
+    const buffer = await this.diffusionsService.getCityCoverCardBuffer(city, {
+      date,
+      count: Number.isNaN(parsedCount as number) ? undefined : parsedCount,
+      format: 'jpeg',
+    });
+    res.set({
+      'Content-Type': 'image/jpeg',
+      'Content-Length': buffer.length,
+      'Cache-Control': 'public, max-age=300',
+    });
+    res.end(buffer);
+  }
+
+  @Get('diffusions/city-cover/:city/social-card.png')
+  async getCityCoverSocialCardPng(
+    @Param('city') city: string,
+    @Query('date') date: string | undefined,
+    @Query('count') count: string | undefined,
+    @Res() res: Response,
+  ) {
+    const parsedCount = count ? parseInt(count, 10) : undefined;
+    const buffer = await this.diffusionsService.getCityCoverCardBuffer(city, {
+      date,
+      count: Number.isNaN(parsedCount as number) ? undefined : parsedCount,
+      format: 'png',
+    });
+    res.set({
+      'Content-Type': 'image/png',
+      'Content-Length': buffer.length,
+      'Cache-Control': 'public, max-age=300',
+    });
+    res.end(buffer);
+  }
+
   @Get('diffusions/:id/social-card.png')
   async getDiffusionSocialCard(
     @Param('id') id: string,
     @Res() res: Response,
   ) {
-    const buffer = await this.diffusionsService.getDiffusionSocialCardBuffer(id);
+    const buffer = await this.diffusionsService.getDiffusionSocialCardBuffer(
+      id,
+      'png',
+    );
     res.set({
       'Content-Type': 'image/png',
+      'Content-Length': buffer.length,
+      'Cache-Control': 'public, max-age=300',
+    });
+    res.end(buffer);
+  }
+
+  @Get('diffusions/:id/social-card.jpg')
+  async getDiffusionSocialCardJpg(
+    @Param('id') id: string,
+    @Res() res: Response,
+  ) {
+    const buffer = await this.diffusionsService.getDiffusionSocialCardBuffer(
+      id,
+      'jpeg',
+    );
+    res.set({
+      'Content-Type': 'image/jpeg',
       'Content-Length': buffer.length,
       'Cache-Control': 'public, max-age=300',
     });
@@ -75,9 +137,29 @@ export class PublicDiffusionsController {
     @Param('id') id: string,
     @Res() res: Response,
   ) {
-    const buffer = await this.diffusionsService.getPropertySocialCardBuffer(id);
+    const buffer = await this.diffusionsService.getPropertySocialCardBuffer(
+      id,
+      'png',
+    );
     res.set({
       'Content-Type': 'image/png',
+      'Content-Length': buffer.length,
+      'Cache-Control': 'public, max-age=300',
+    });
+    res.end(buffer);
+  }
+
+  @Get('properties/:id/social-card.jpg')
+  async getPropertySocialCardJpg(
+    @Param('id') id: string,
+    @Res() res: Response,
+  ) {
+    const buffer = await this.diffusionsService.getPropertySocialCardBuffer(
+      id,
+      'jpeg',
+    );
+    res.set({
+      'Content-Type': 'image/jpeg',
       'Content-Length': buffer.length,
       'Cache-Control': 'public, max-age=300',
     });
@@ -127,6 +209,20 @@ export class DiffusionsController {
   @Get('admin/diffusions')
   listAdminDiffusions(@Query() filter: FilterAdminDiffusionsDto) {
     return this.diffusionsService.listAdminDiffusions(filter);
+  }
+
+  // Vista previa de los lotes diarios agrupados por ciudad que saldrán a las 00:00 (ADMIN y REVISOR)
+  @UseGuards(RolesGuard)
+  @Roles('ADMIN', 'REVISOR')
+  @Get('admin/diffusions/daily-batches')
+  getDailyCityBatches(
+    @Query('network') network?: string,
+    @Query('date') date?: string,
+  ) {
+    return this.diffusionsService.getDailyCityBatchesForN8n({
+      network,
+      date,
+    });
   }
 
   // Detalle completo + validación de requisitos (ADMIN y REVISOR)

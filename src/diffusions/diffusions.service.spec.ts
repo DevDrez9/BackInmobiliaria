@@ -273,4 +273,89 @@ describe('DiffusionsService (Weekly free quota + Admin/Revisor moderation -> n8n
     expect(mockFetch).not.toHaveBeenCalled();
     expect(prisma.notification.create).toHaveBeenCalledTimes(1);
   });
+
+  it('generates a 1080x1080 JPEG city cover card with current publication date and groups daily approved diffusions by city', async () => {
+    const socialCardService = new SocialCardService();
+    const coverBuf = await socialCardService.generateCityCoverBuffer(
+      {
+        city: 'Santa Cruz',
+        date: '2026-11-17',
+        totalProperties: 2,
+        samplePhotos: [],
+      },
+      'jpeg',
+    );
+    const meta = await sharp(coverBuf).metadata();
+    expect(meta.format).toBe('jpeg');
+    expect(meta.width).toBe(1080);
+    expect(meta.height).toBe(1080);
+
+    const prisma = makeMockPrisma();
+    prisma.socialDiffusion.findMany.mockResolvedValue([
+      {
+        id: 'diff-scz-1',
+        status: 'APROBADO',
+        approvedById: 'rev-1',
+        postText: 'Depto en Equipetrol',
+        property: {
+          id: 'prop-scz-1',
+          title: 'Depto 2D Equipetrol',
+          listingType: 'ALQUILER',
+          propertyType: 'DEPARTAMENTO',
+          status: 'ACTIVO',
+          price: 3500,
+          currency: 'BOB',
+          city: 'Santa Cruz',
+          zone: 'Equipetrol',
+          bedrooms: 2,
+          latitude: -17.765,
+          longitude: -63.195,
+          images: ['https://cdn.example.com/scz1.jpg'],
+          isVerified: true,
+        },
+      },
+      {
+        id: 'diff-lpz-1',
+        status: 'APROBADO',
+        approvedById: 'rev-1',
+        postText: 'Casa en Calacoto',
+        property: {
+          id: 'prop-lpz-1',
+          title: 'Casa 3D Calacoto',
+          listingType: 'VENTA',
+          propertyType: 'CASA',
+          status: 'ACTIVO',
+          price: 150000,
+          currency: 'USD',
+          city: 'La Paz',
+          zone: 'Calacoto',
+          bedrooms: 3,
+          latitude: -16.535,
+          longitude: -68.085,
+          images: ['https://cdn.example.com/lpz1.jpg'],
+          isVerified: false,
+        },
+      },
+    ]);
+
+    const service = new DiffusionsService(
+      prisma as any,
+      makeMockUsersService() as any,
+    );
+    const batches = await service.getDailyCityBatchesForN8n({
+      network: 'tiktok',
+      date: '2026-11-17',
+    });
+
+    expect(batches.totalCities).toBe(2);
+    expect(batches.publicationDateDisplay).toBe('17/11/2026');
+    const sczBatch = batches.cities.find((c) => c.city === 'Santa Cruz');
+    expect(sczBatch).toBeDefined();
+    expect(sczBatch?.carouselImagesJpg[0]).toContain(
+      '/public/diffusions/city-cover/Santa%20Cruz/social-card.jpg?date=2026-11-17&count=1',
+    );
+    expect(sczBatch?.carouselImagesJpg[1]).toContain(
+      '/public/diffusions/diff-scz-1/social-card.jpg',
+    );
+  });
 });

@@ -46,6 +46,12 @@ services:
       - META_PAGE_ID=${META_PAGE_ID:-}
       - META_IG_USER_ID=${META_IG_USER_ID:-}
       - META_PAGE_ACCESS_TOKEN=${META_PAGE_ACCESS_TOKEN:-}
+      - TIKTOK_CLIENT_KEY=${TIKTOK_CLIENT_KEY:-}
+      - TIKTOK_CLIENT_SECRET=${TIKTOK_CLIENT_SECRET:-}
+      - TIKTOK_ACCESS_TOKEN=${TIKTOK_ACCESS_TOKEN:-}
+      - TIKTOK_REFRESH_TOKEN=${TIKTOK_REFRESH_TOKEN:-}
+      - TIKTOK_POST_MODE=${TIKTOK_POST_MODE:-MEDIA_UPLOAD}
+      - TIKTOK_PRIVACY_LEVEL=${TIKTOK_PRIVACY_LEVEL:-PUBLIC_TO_EVERYONE}
     volumes:
       - n8n_data:/home/node/.n8n
       - ./n8n/workflows:/workflows:ro
@@ -73,6 +79,7 @@ services:
     env_file:
       - .env
     environment:
+      - DIFFUSION_SCHEDULE_MODE=${DIFFUSION_SCHEDULE_MODE:-DAILY_00}
       - N8N_DIFFUSION_WEBHOOK_URL=${N8N_DIFFUSION_WEBHOOK_URL:-http://n8n:5678/webhook/difusion-inmueble}
       - N8N_CALLBACK_BASE_URL=${N8N_CALLBACK_BASE_URL:-http://backend:3000}
     volumes:

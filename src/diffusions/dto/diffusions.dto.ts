@@ -1,4 +1,5 @@
 import {
+  IsArray,
   IsInt,
   IsNotEmpty,
   IsOptional,
@@ -68,9 +69,22 @@ export class RejectDiffusionDto {
 }
 
 export class N8nDiffusionCallbackDto {
+  @IsOptional()
   @IsString()
-  @IsNotEmpty()
-  difusion_id: string;
+  difusion_id?: string;
+
+  @IsOptional()
+  @IsArray()
+  @IsString({ each: true })
+  difusion_ids?: string[];
+
+  @IsOptional()
+  @IsString()
+  ciudad?: string;
+
+  @IsOptional()
+  @IsString()
+  network?: 'meta' | 'tiktok' | 'all' | string;
 
   @IsString()
   @IsNotEmpty()
@@ -83,6 +97,10 @@ export class N8nDiffusionCallbackDto {
   @IsOptional()
   @IsString()
   ig_media_id?: string | null;
+
+  @IsOptional()
+  @IsString()
+  tiktok_post_id?: string | null;
 
   @IsOptional()
   @IsString()
