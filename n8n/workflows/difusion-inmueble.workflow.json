@@ -16,7 +16,15 @@
       "name": "Cada Dia 00:00 AM",
       "type": "n8n-nodes-base.scheduleTrigger",
       "typeVersion": 1.2,
-      "position": [220, 180]
+      "position": [220, 140]
+    },
+    {
+      "parameters": {},
+      "id": "b1f2c3d4-0001-4000-8000-000000000099",
+      "name": "Ejecucion Manual CLI",
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1,
+      "position": [220, 280]
     },
     {
       "parameters": {
@@ -50,7 +58,7 @@
       "name": "Webhook Difusion Manual",
       "type": "n8n-nodes-base.webhook",
       "typeVersion": 2,
-      "position": [220, 420],
+      "position": [220, 440],
       "webhookId": "difusion-inmueble-webhook"
     },
     {
@@ -80,7 +88,7 @@
       "name": "Validar X-Webhook-Secret",
       "type": "n8n-nodes-base.if",
       "typeVersion": 2,
-      "position": [480, 420]
+      "position": [480, 440]
     },
     {
       "parameters": {
@@ -95,6 +103,17 @@
   ],
   "connections": {
     "Cada Dia 00:00 AM": {
+      "main": [
+        [
+          {
+            "node": "Obtener Aprobados por Ciudad (Meta)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Ejecucion Manual CLI": {
       "main": [
         [
           {
