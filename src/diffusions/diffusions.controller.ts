@@ -56,6 +56,17 @@ export class PublicDiffusionsController {
     res.end(buf);
   }
 
+  @Get([
+    'tiktokO8O2OE6rV3fgyKxYdNwizMxYnfRfNmiF.txt',
+    'app/tiktokO8O2OE6rV3fgyKxYdNwizMxYnfRfNmiF.txt',
+  ])
+  getTikTokVerificationExact(@Res() res: Response) {
+    res.set({ 'Content-Type': 'text/plain; charset=utf-8' });
+    res.send(
+      'tiktok-developers-site-verification=O8O2OE6rV3fgyKxYdNwizMxYnfRfNmiF',
+    );
+  }
+
   @Get('diffusions/city-cover/:city/social-card.jpg')
   async getCityCoverSocialCardJpg(
     @Param('city') city: string,
@@ -164,6 +175,20 @@ export class PublicDiffusionsController {
       'Cache-Control': 'public, max-age=300',
     });
     res.end(buffer);
+  }
+
+  @Get([':tiktokFile', 'app/:tiktokFile'])
+  getTikTokVerificationDynamic(
+    @Param('tiktokFile') tiktokFile: string,
+    @Res() res: Response,
+  ) {
+    const match = /^tiktok([A-Za-z0-9_-]+)\.txt$/.exec(tiktokFile || '');
+    if (!match) {
+      res.status(404).send('Not Found');
+      return;
+    }
+    res.set({ 'Content-Type': 'text/plain; charset=utf-8' });
+    res.send(`tiktok-developers-site-verification=${match[1]}`);
   }
 }
 
