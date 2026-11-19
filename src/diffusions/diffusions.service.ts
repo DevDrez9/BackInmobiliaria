@@ -1061,7 +1061,8 @@ export class DiffusionsService {
     } else if (network === 'meta') {
       whereClause.status = { in: ['APROBADO', 'PUBLICADO'] };
       whereClause.approvedById = { not: null };
-      whereClause.OR = [{ fbPostId: null }, { igMediaId: null }];
+      // Solo difusiones que aún no se hayan publicado en Facebook (evita republicaciones al día siguiente)
+      whereClause.fbPostId = null;
     } else {
       whereClause.status = 'APROBADO';
     }

@@ -427,11 +427,11 @@ export class SocialCardService {
     const bullets = [
       `Fecha: ${dateParts.slashDate}`,
       totalCount
-        ? `${totalCount} inmueble(s) verificados hoy`
+        ? `${totalCount} inmueble(s) hoy`
         : 'Catálogo actualizado hoy',
+      '¡Publica el tuyo GRATIS!',
       'Alquiler, Venta y Anticrético',
-      'Contacto directo con propietarios',
-      'Desliza para ver cada ficha ->',
+      'Desliza para ver las opciones 👉',
     ];
 
     const bulletStartY = 670;
@@ -482,12 +482,13 @@ export class SocialCardService {
       <line x1="24" y1="630" x2="351" y2="630" stroke="#CBD5E1" stroke-width="1.5" />
       ${bulletSvgs}
 
-      <!-- Parte inferior: Más información en la app AlquilaBo -->
+      <!-- Parte inferior: Publica el tuyo gratis desde AlquilaBo -->
       <g transform="translate(16, 932)">
         <rect x="0" y="0" width="343" height="122" rx="16" fill="#0B1F3A" />
         <rect x="0" y="0" width="343" height="6" rx="3" fill="#16A34A" />
-        <text x="171" y="52" font-family="DejaVu Sans, Arial, Helvetica, sans-serif" font-size="23" font-weight="bold" fill="#F8FAFC" text-anchor="middle">Más información en</text>
-        <text x="171" y="92" font-family="DejaVu Sans, Arial, Helvetica, sans-serif" font-size="30" font-weight="bold" fill="#FFFFFF" text-anchor="middle">la app <tspan fill="#22C55E">AlquilaBO</tspan></text>
+        <text x="171" y="44" font-family="DejaVu Sans, Arial, Helvetica, sans-serif" font-size="17" font-weight="bold" fill="#94A3B8" text-anchor="middle">¿TIENES UN INMUEBLE?</text>
+        <text x="171" y="74" font-family="DejaVu Sans, Arial, Helvetica, sans-serif" font-size="22" font-weight="bold" fill="#FFFFFF" text-anchor="middle">¡Publica el tuyo <tspan fill="#22C55E">GRATIS</tspan>!</text>
+        <text x="171" y="104" font-family="DejaVu Sans, Arial, Helvetica, sans-serif" font-size="18" font-weight="bold" fill="#22C55E" text-anchor="middle">desde la app AlquilaBO</text>
       </g>
     </svg>`;
   }
@@ -504,15 +505,22 @@ export class SocialCardService {
 
     return `<svg width="705" height="1080" viewBox="0 0 705 1080" xmlns="http://www.w3.org/2000/svg">
       <!-- Sombra oscura semitransparente inferior para resaltar la portada de ciudad -->
-      <rect x="0" y="720" width="705" height="360" fill="#0B1F3A" fill-opacity="0.88" />
+      <rect x="0" y="720" width="705" height="360" fill="#0B1F3A" fill-opacity="0.90" />
       <rect x="0" y="720" width="705" height="6" fill="#22C55E" />
 
-      <rect x="36" y="758" width="420" height="44" rx="22" fill="#16A34A" />
-      <text x="246" y="788" font-family="DejaVu Sans, Arial, Helvetica, sans-serif" font-size="20" font-weight="bold" fill="#FFFFFF" text-anchor="middle">${this.escapeXml(countLabel)}</text>
+      <rect x="36" y="750" width="420" height="42" rx="21" fill="#16A34A" />
+      <text x="246" y="778" font-family="DejaVu Sans, Arial, Helvetica, sans-serif" font-size="19" font-weight="bold" fill="#FFFFFF" text-anchor="middle">${this.escapeXml(countLabel)}</text>
 
-      <text x="36" y="868" font-family="DejaVu Sans, Arial, Helvetica, sans-serif" font-size="54" font-weight="bold" fill="#FFFFFF">${cityUpper}</text>
-      <text x="36" y="925" font-family="DejaVu Sans, Arial, Helvetica, sans-serif" font-size="30" font-weight="bold" fill="#22C55E">PUBLICACIÓN DEL ${this.escapeXml(dateParts.longSpanishDate)}</text>
-      <text x="36" y="985" font-family="DejaVu Sans, Arial, Helvetica, sans-serif" font-size="24" font-weight="bold" fill="#E2E8F0">Desliza el carrusel para ver todas las opciones -&gt;</text>
+      <text x="36" y="845" font-family="DejaVu Sans, Arial, Helvetica, sans-serif" font-size="52" font-weight="bold" fill="#FFFFFF">${cityUpper}</text>
+      <text x="36" y="890" font-family="DejaVu Sans, Arial, Helvetica, sans-serif" font-size="24" font-weight="bold" fill="#E2E8F0">PUBLICACIÓN DEL ${this.escapeXml(dateParts.longSpanishDate)}</text>
+
+      <!-- Botón Call To Action llamativo para captar más usuarios -->
+      <g transform="translate(36, 920)">
+        <rect x="0" y="0" width="590" height="56" rx="14" fill="#22C55E" />
+        <text x="295" y="36" font-family="DejaVu Sans, Arial, Helvetica, sans-serif" font-size="23" font-weight="bold" fill="#0B1F3A" text-anchor="middle">✨ ¡Publica el tuyo GRATIS desde AlquilaBo!</text>
+      </g>
+
+      <text x="36" y="1015" font-family="DejaVu Sans, Arial, Helvetica, sans-serif" font-size="21" font-weight="bold" fill="#94A3B8">Desliza el carrusel para ver todas las opciones 👉</text>
     </svg>`;
   }
 
